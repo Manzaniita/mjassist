@@ -27,13 +27,13 @@ export default function Revendedores() {
       ([c, s, p, pv]) => {
         setClientes(c); setStock(s); setProductos(p)
         setPrecioRev(Object.fromEntries(
-          pv.filter((x) => x.canal === 'REVENDEDOR').map((x) => [x.producto_id, Number(x.precio_ars)])
+          pv.filter((x) => x.canal?.toUpperCase() === 'REVENDEDOR').map((x) => [x.producto_id, Number(x.precio_ars)])
         ))
       }
     )
   useEffect(() => { cargar() }, [])
 
-  const revendedores = clientes.filter((c) => c.tipo === 'REVENDEDOR')
+  const revendedores = clientes.filter((c) => c.tipo?.toUpperCase() === 'REVENDEDOR')
   const stockDe = (revId: string) => stock.filter((s) => s.revendedor_id === revId && s.cantidad > 0)
   const stockCentral = useMemo(() =>
     Object.fromEntries(stock.filter((s) => s.es_central).map((s) => [s.producto_id, s.cantidad])), [stock])

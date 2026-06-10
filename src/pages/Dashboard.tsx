@@ -21,7 +21,7 @@ export default function Dashboard() {
   const totalSemana = ventas.reduce((a, v) => a + Number(v.total_ars), 0)
   const porCobrar = clientes.filter((c) => c.saldo > 0).reduce((a, c) => a + Number(c.saldo), 0)
   const deudaRevs = clientes
-    .filter((c) => c.tipo === 'REVENDEDOR' && c.saldo > 0)
+    .filter((c) => c.tipo?.toUpperCase() === 'REVENDEDOR' && c.saldo > 0)
     .sort((a, b) => b.saldo - a.saldo)
 
   const central = stock.filter((s) => s.es_central)
