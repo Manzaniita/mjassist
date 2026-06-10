@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   getStock, getReservado, getTemplateWhatsapp, setTemplateWhatsapp, registrarAjuste,
-  getPreciosVigentes, crearProducto, actualizarProducto, eliminarProducto, setPrecio, StockRow, PrecioVigente,
+  getPreciosVigentes, crearProducto, actualizarProducto, eliminarProducto, setPrecio,
+  getCanalesPrecio, crearCanalPrecio, actualizarCanalPrecio, eliminarCanalPrecio,
+  StockRow, PrecioVigente, CanalPrecio,
 } from '../lib/api'
 import { useApp } from '../main'
 
@@ -10,6 +12,7 @@ export default function Stock() {
   const [stock, setStock] = useState<StockRow[]>([])
   const [reservado, setReservado] = useState<Record<string, number>>({})
   const [preciosVigentes, setPreciosVigentes] = useState<PrecioVigente[]>([])
+  const [canales, setCanales] = useState<CanalPrecio[]>([])
   const [template, setTemplate] = useState('')
   const [editTpl, setEditTpl] = useState(false)
   const [ajuste, setAjuste] = useState<{ producto_id: string; nombre: string } | null>(null)
@@ -22,11 +25,15 @@ export default function Stock() {
   const [precioInputs, setPrecioInputs] = useState<Record<string, string>>({})
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
   const [precioMasivo, setPrecioMasivo] = useState<{ canal: string; precio: string } | null>(null)
+  const [gestionCanales, setGestionCanales] = useState(false)
+  const [nuevoCanal, setNuevoCanal] = useState('')
+  const [editCanal, setEditCanal] = useState<CanalPrecio | null>(null)
+  const [filtroTexto, setFiltroTexto] = useState('')
 
   const cargar = () =>
-    Promise.all([getStock(), getReservado(), getTemplateWhatsapp(), getPreciosVigentes()]).then(
-      ([s, r, t, pv]) => {
-        setStock(s); setReservado(r); setTemplate(t); setPreciosVigentes(pv)
+    Promise.all([getStock(), getReservado(), getTemplateWhatsapp(), getPreciosVigentes(), getCanalesPrecio()]).then(
+      ([s, r, t, pv, c]) => {
+        setStock(s); setReservado(r); setTemplate(t); setPreciosVigentes(pv); setCanales(c)
       }
     )
   useEffect(() => { cargar() }, [])
@@ -44,6 +51,12 @@ export default function Stock() {
       .sort((a, b) => a.disponible - b.disponible)
   }, [stock, reservado])
 
+  const productosFiltrados = useMemo(() => {
+    if (!filtroTexto) return productos
+    const t = filtroTexto.toLowerCase()
+    return productos.filter((p) => p.nombre.toLowerCase().includes(t))
+  }, [productos, filtroTexto])
+
   const precios = useMemo(() => {
     const map: Record<string, Record<string, number>> = {}
     preciosVigentes.forEach((p) => {
@@ -54,12 +67,13 @@ export default function Stock() {
   }, [preciosVigentes])
 
   const mensaje = useMemo(() => {
+    const canalDefault = canales[0]?.nombre ?? 'MINORISTA'
     const lineas = productos
       .filter((p) => p.disponible > 0)
-      .map((p) => `• ${p.nombre}${precios[p.id]?.MINORISTA ? ` — $${precios[p.id].MINORISTA.toLocaleString('es-AR')}` : ''}`)
+      .map((p) => `• ${p.nombre}${precios[p.id]?.[canalDefault] ? ` — $${precios[p.id][canalDefault].toLocaleString('es-AR')}` : ''}`)
       .join('\n')
     return template.replace('{{lineas}}', lineas || '(sin stock disponible)')
-  }, [productos, template, precios])
+  }, [productos, template, precios, canales])
 
   const copiar = async () => {
     await navigator.clipboard.writeText(mensaje)
@@ -122,10 +136,10 @@ export default function Stock() {
   const guardarPrecios = async () => {
     if (!editPrecios) return
     try {
-      for (const canal of ['MINORISTA', 'REVENDEDOR', 'MAYORISTA']) {
-        const val = Number(precioInputs[canal])
+      for (const c of canales) {
+        const val = Number(precioInputs[c.nombre])
         if (!isNaN(val) && val >= 0) {
-          await setPrecio(editPrecios.id, canal, val)
+          await setPrecio(editPrecios.id, c.nombre, val)
         }
       }
       toast('Precios actualizados ✔')
@@ -143,6 +157,14 @@ export default function Stock() {
     setSeleccionados(next)
   }
 
+  const seleccionarTodos = () => {
+    if (seleccionados.size === productosFiltrados.length) {
+      setSeleccionados(new Set())
+    } else {
+      setSeleccionados(new Set(productosFiltrados.map((p) => p.id)))
+    }
+  }
+
   const aplicarPrecioMasivo = async () => {
     if (!precioMasivo || seleccionados.size === 0) return
     const precio = Number(precioMasivo.precio)
@@ -157,6 +179,41 @@ export default function Stock() {
       cargar()
     } catch (e: any) {
       toast(e.message || 'Error al aplicar precios', true)
+    }
+  }
+
+  const guardarCanal = async () => {
+    if (!editCanal) return
+    try {
+      await actualizarCanalPrecio(editCanal.id, { nombre: editCanal.nombre, orden: editCanal.orden })
+      toast('Canal actualizado ✔')
+      setEditCanal(null)
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al actualizar canal', true)
+    }
+  }
+
+  const altaCanal = async () => {
+    if (!nuevoCanal.trim()) return
+    try {
+      await crearCanalPrecio(nuevoCanal.trim())
+      setNuevoCanal('')
+      toast('Canal creado ✔')
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al crear canal', true)
+    }
+  }
+
+  const borrarCanal = async (c: CanalPrecio) => {
+    if (!window.confirm(`¿Eliminar canal "${c.nombre}"?`)) return
+    try {
+      await eliminarCanalPrecio(c.id)
+      toast('Canal eliminado ✔')
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al eliminar canal', true)
     }
   }
 
@@ -187,21 +244,28 @@ export default function Stock() {
         <button type="button" className="btn sm primary" onClick={altaProducto}>Crear</button>
       </div>
 
+      <div className="card row">
+        <input placeholder="Filtrar productos…" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} style={{ margin: 0 }} />
+        <button type="button" className="btn sm ghost" onClick={seleccionarTodos}>
+          {seleccionados.size === productosFiltrados.length && productosFiltrados.length > 0 ? 'Desmarcar' : 'Seleccionar todos'}
+        </button>
+        <button type="button" className="btn sm ghost" onClick={() => setGestionCanales(true)}>⚙ Canales</button>
+      </div>
+
       {seleccionados.size > 0 && (
         <div className="card row" style={{ background: 'rgba(255,45,85,0.08)' }}>
           <span className="muted">{seleccionados.size} seleccionados</span>
-          <button type="button" className="btn sm primary" onClick={() => setPrecioMasivo({ canal: 'MINORISTA', precio: '' })}>Aplicar precio masivo</button>
+          <button type="button" className="btn sm primary" onClick={() => setPrecioMasivo({ canal: canales[0]?.nombre ?? 'MINORISTA', precio: '' })}>Aplicar precio masivo</button>
           <button type="button" className="btn sm ghost" onClick={() => setSeleccionados(new Set())}>Limpiar</button>
         </div>
       )}
 
-      {productos.map((p) => {
+      {productosFiltrados.map((p) => {
         const max = Math.max(p.central + p.consignado, p.minimo * 3, 1)
         const pct = Math.min(100, (p.central / max) * 100)
         const nivel = p.central === 0 ? 'crit' : p.central <= p.minimo ? 'warn' : 'ok'
-        const pmin = precios[p.id]?.MINORISTA ?? 0
-        const prev = precios[p.id]?.REVENDEDOR ?? 0
-        const pmay = precios[p.id]?.MAYORISTA ?? 0
+        const preciosProd = canales.map((c) => precios[p.id]?.[c.nombre] ?? 0)
+        const preciosStr = preciosProd.some((v) => v > 0) ? ` · ${preciosProd.map((v) => v > 0 ? `$${v}` : '-').join('/')}` : ''
         return (
           <div className="card" key={p.id}>
             <div className="row">
@@ -218,11 +282,10 @@ export default function Stock() {
             <div className="thermo"><div className={nivel} style={{ width: pct + '%' }} /></div>
             <div className="row" style={{ marginTop: 7 }}>
               <span className="muted">
-                Central {p.central} · En calle {p.consignado} · Reservado {p.reservado}
-                {(pmin || prev || pmay) ? ` · $${pmin || '-'}/${prev || '-'}/${pmay || '-'}` : ''}
+                Central {p.central} · En calle {p.consignado} · Reservado {p.reservado}{preciosStr}
               </span>
               <div className="row" style={{ gap: 6 }}>
-                <button type="button" className="btn sm ghost" onClick={() => { setEditPrecios({ id: p.id, nombre: p.nombre }); setPrecioInputs({ MINORISTA: String(pmin || ''), REVENDEDOR: String(prev || ''), MAYORISTA: String(pmay || '') }) }}>💲</button>
+                <button type="button" className="btn sm ghost" onClick={() => { setEditPrecios({ id: p.id, nombre: p.nombre }); setPrecioInputs(Object.fromEntries(canales.map((c) => [c.nombre, String(precios[p.id]?.[c.nombre] || '')]))) }}>💲</button>
                 <button type="button" className="btn sm ghost" onClick={() => setAjuste({ producto_id: p.id, nombre: p.nombre })}>Ajustar</button>
                 <button type="button" className="btn sm ghost" onClick={() => setEditProd({ id: p.id, nombre: p.nombre, marca: '', sku: '', stock_minimo: p.minimo })}>✎</button>
                 <button type="button" className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarProducto(p.id, p.nombre)}>🗑</button>
@@ -241,8 +304,8 @@ export default function Stock() {
             <label>Motivo</label>
             <input placeholder="Ej: unidad dañada, conteo físico…" value={ajMotivo} onChange={(e) => setAjMotivo(e.target.value)} />
             <div className="row" style={{ gap: 8, marginTop: 14 }}>
-              <button className="btn block" onClick={() => setAjuste(null)}>Cancelar</button>
-              <button className="btn primary block" onClick={guardarAjuste} disabled={!Number(ajCant)}>Guardar ajuste</button>
+              <button type="button" className="btn block" onClick={() => setAjuste(null)}>Cancelar</button>
+              <button type="button" className="btn primary block" onClick={guardarAjuste} disabled={!Number(ajCant)}>Guardar ajuste</button>
             </div>
           </div>
         </div>
@@ -261,8 +324,8 @@ export default function Stock() {
             <label>Stock mínimo</label>
             <input type="number" inputMode="numeric" value={editProd.stock_minimo} onChange={(e) => setEditProd({ ...editProd, stock_minimo: Number(e.target.value) })} />
             <div className="row" style={{ gap: 8, marginTop: 14 }}>
-              <button className="btn block" onClick={() => setEditProd(null)}>Cancelar</button>
-              <button className="btn primary block" onClick={guardarProducto}>Guardar</button>
+              <button type="button" className="btn block" onClick={() => setEditProd(null)}>Cancelar</button>
+              <button type="button" className="btn primary block" onClick={guardarProducto}>Guardar</button>
             </div>
           </div>
         </div>
@@ -272,11 +335,11 @@ export default function Stock() {
         <div className="modal-back" onClick={() => setEditPrecios(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Precios — {editPrecios.nombre}</h2>
-            {(['MINORISTA', 'REVENDEDOR', 'MAYORISTA'] as const).map((canal) => (
-              <div key={canal} style={{ marginBottom: 10 }}>
-                <label>{canal === 'MINORISTA' ? 'Minorista' : canal === 'REVENDEDOR' ? 'Revendedor' : 'Mayorista'} (0 = sin precio)</label>
-                <input type="number" inputMode="numeric" value={precioInputs[canal] ?? ''}
-                  onChange={(e) => setPrecioInputs({ ...precioInputs, [canal]: e.target.value })} />
+            {canales.map((c) => (
+              <div key={c.id} style={{ marginBottom: 10 }}>
+                <label>{c.nombre} (0 = sin precio)</label>
+                <input type="number" inputMode="numeric" value={precioInputs[c.nombre] ?? ''}
+                  onChange={(e) => setPrecioInputs({ ...precioInputs, [c.nombre]: e.target.value })} />
               </div>
             ))}
             <div className="row" style={{ gap: 8, marginTop: 14 }}>
@@ -293,15 +356,46 @@ export default function Stock() {
             <h2>Precio masivo ({seleccionados.size} productos)</h2>
             <label>Canal</label>
             <select value={precioMasivo.canal} onChange={(e) => setPrecioMasivo({ ...precioMasivo, canal: e.target.value })}>
-              <option value="MINORISTA">Minorista</option>
-              <option value="REVENDEDOR">Revendedor</option>
-              <option value="MAYORISTA">Mayorista</option>
+              {canales.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
             </select>
             <label>Precio</label>
             <input type="number" inputMode="numeric" autoFocus value={precioMasivo.precio} onChange={(e) => setPrecioMasivo({ ...precioMasivo, precio: e.target.value })} />
             <div className="row" style={{ gap: 8, marginTop: 14 }}>
               <button type="button" className="btn block" onClick={() => setPrecioMasivo(null)}>Cancelar</button>
               <button type="button" className="btn primary block" onClick={aplicarPrecioMasivo}>Aplicar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gestionCanales && (
+        <div className="modal-back" onClick={() => setGestionCanales(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Gestionar canales de precio</h2>
+            <div className="card row" style={{ marginBottom: 10 }}>
+              <input placeholder="Nuevo canal…" value={nuevoCanal} onChange={(e) => setNuevoCanal(e.target.value)} />
+              <button type="button" className="btn sm primary" onClick={altaCanal}>Crear</button>
+            </div>
+            {canales.map((c) => (
+              <div className="row" key={c.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+                {editCanal?.id === c.id ? (
+                  <>
+                    <input value={editCanal.nombre} onChange={(e) => setEditCanal({ ...editCanal, nombre: e.target.value })} style={{ flex: 1 }} />
+                    <input type="number" value={editCanal.orden} onChange={(e) => setEditCanal({ ...editCanal, orden: Number(e.target.value) })} style={{ width: 60 }} />
+                    <button type="button" className="btn sm primary" onClick={guardarCanal}>✔</button>
+                    <button type="button" className="btn sm ghost" onClick={() => setEditCanal(null)}>✕</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1 }}>{c.nombre}</span>
+                    <button type="button" className="btn sm ghost" onClick={() => setEditCanal(c)}>✎</button>
+                    <button type="button" className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarCanal(c)}>🗑</button>
+                  </>
+                )}
+              </div>
+            ))}
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button type="button" className="btn block" onClick={() => setGestionCanales(false)}>Cerrar</button>
             </div>
           </div>
         </div>

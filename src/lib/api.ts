@@ -11,9 +11,12 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
 
 // ---------- Tipos ----------
 export interface Usuario { id: string; nombre: string; rol: string }
+export interface CanalPrecio { id: number; nombre: string; orden: number; activo: boolean }
+export interface TipoCliente { id: number; nombre: string; orden: number; activo: boolean }
+
 export interface Cliente {
   id: string; nombre: string; alias: string | null; telefono: string | null
-  instagram: string | null; tipo: 'FINAL' | 'REVENDEDOR' | 'MAYORISTA'
+  instagram: string | null; tipo: string
   notas: string | null; activo: boolean
 }
 export interface SaldoCliente extends Cliente {
@@ -68,7 +71,15 @@ export async function crearCliente(c: Partial<Cliente>): Promise<Cliente> {
 }
 
 export async function actualizarCliente(id: string, c: Partial<Cliente>): Promise<Cliente> {
-  const { data, error } = await supabase.from('clientes').update(c).eq('id', id).select()
+  const payload: Partial<Cliente> = {}
+  if (c.nombre !== undefined) payload.nombre = c.nombre
+  if (c.alias !== undefined) payload.alias = c.alias
+  if (c.telefono !== undefined) payload.telefono = c.telefono
+  if (c.instagram !== undefined) payload.instagram = c.instagram
+  if (c.tipo !== undefined) payload.tipo = c.tipo
+  if (c.notas !== undefined) payload.notas = c.notas
+  if (c.activo !== undefined) payload.activo = c.activo
+  const { data, error } = await supabase.from('clientes').update(payload).eq('id', id).select()
   if (error) throw error
   if (!data || data.length === 0) throw new Error('No se pudo actualizar el cliente')
   return data[0]
@@ -267,6 +278,51 @@ export async function getTemplateWhatsapp(): Promise<string> {
 }
 export async function setTemplateWhatsapp(valor: string) {
   await supabase.from('configuracion').upsert({ clave: 'whatsapp_template', valor })
+}
+
+// ---------- Canales y Tipos dinámicos ----------
+export async function getCanalesPrecio(): Promise<CanalPrecio[]> {
+  const { data, error } = await supabase.from('canales_precio').select('*').eq('activo', true).order('orden')
+  if (error) throw error
+  return data
+}
+export async function crearCanalPrecio(nombre: string, orden = 0): Promise<CanalPrecio> {
+  const { data, error } = await supabase.from('canales_precio').insert({ nombre, orden }).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('No se pudo crear el canal')
+  return data[0]
+}
+export async function actualizarCanalPrecio(id: number, campos: Partial<CanalPrecio>): Promise<CanalPrecio> {
+  const { data, error } = await supabase.from('canales_precio').update(campos).eq('id', id).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('No se pudo actualizar el canal')
+  return data[0]
+}
+export async function eliminarCanalPrecio(id: number): Promise<void> {
+  const { error } = await supabase.from('canales_precio').update({ activo: false }).eq('id', id)
+  if (error) throw error
+}
+
+export async function getTiposCliente(): Promise<TipoCliente[]> {
+  const { data, error } = await supabase.from('tipos_cliente').select('*').eq('activo', true).order('orden')
+  if (error) throw error
+  return data
+}
+export async function crearTipoCliente(nombre: string, orden = 0): Promise<TipoCliente> {
+  const { data, error } = await supabase.from('tipos_cliente').insert({ nombre, orden }).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('No se pudo crear el tipo')
+  return data[0]
+}
+export async function actualizarTipoCliente(id: number, campos: Partial<TipoCliente>): Promise<TipoCliente> {
+  const { data, error } = await supabase.from('tipos_cliente').update(campos).eq('id', id).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('No se pudo actualizar el tipo')
+  return data[0]
+}
+export async function eliminarTipoCliente(id: number): Promise<void> {
+  const { error } = await supabase.from('tipos_cliente').update({ activo: false }).eq('id', id)
+  if (error) throw error
 }
 
 // ---------- Helpers ----------

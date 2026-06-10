@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  getClientes, getProductos, getPreciosVigentes, getStock, registrarVenta, crearCliente,
-  fmtARS, MEDIOS_PAGO, SaldoCliente, Producto, StockRow,
+  getClientes, getProductos, getPreciosVigentes, getStock, registrarVenta, crearCliente, getCanalesPrecio,
+  fmtARS, MEDIOS_PAGO, SaldoCliente, Producto, StockRow, CanalPrecio,
 } from '../lib/api'
 import { useApp } from '../main'
 
@@ -20,7 +20,8 @@ export default function NuevaVenta() {
   const [cliente, setCliente] = useState<SaldoCliente | null>(null)
   const [busProd, setBusProd] = useState('')
   const [lineas, setLineas] = useState<Linea[]>([])
-  const [canal, setCanal] = useState<'MINORISTA' | 'REVENDEDOR' | 'MAYORISTA'>('MINORISTA')
+  const [canales, setCanales] = useState<CanalPrecio[]>([])
+  const [canal, setCanal] = useState<string>('')
   const [entrega, setEntrega] = useState('ENTREGADO')
   const [fechaEstimada, setFechaEstimada] = useState('')
   const [pagoInicial, setPagoInicial] = useState('')
@@ -28,10 +29,12 @@ export default function NuevaVenta() {
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    Promise.all([getClientes(), getProductos(), getPreciosVigentes(), getStock()]).then(
-      ([cs, ps, pv, st]) => {
+    Promise.all([getClientes(), getProductos(), getPreciosVigentes(), getStock(), getCanalesPrecio()]).then(
+      ([cs, ps, pv, st, cn]) => {
         setClientes(cs)
         setProductos(ps)
+        setCanales(cn)
+        if (cn.length) setCanal(cn[0].nombre)
         const map: Record<string, Record<string, number>> = {}
         pv.forEach((p) => {
           map[p.producto_id] = map[p.producto_id] ?? {}
@@ -45,8 +48,10 @@ export default function NuevaVenta() {
     )
   }, [])
 
-  const precioDe = (prodId: string) =>
-    precios[prodId]?.[canal] ?? precios[prodId]?.['MINORISTA'] ?? 0
+  const precioDe = (prodId: string) => {
+    const first = canales[0]?.nombre ?? ''
+    return precios[prodId]?.[canal] ?? precios[prodId]?.[first] ?? 0
+  }
 
   // Al cambiar canal, repreciar líneas que usaban precio de lista
   useEffect(() => {
@@ -142,10 +147,10 @@ export default function NuevaVenta() {
           />
           {clientesFiltrados.map((c) => (
             <div key={c.id} className="row list-tap" style={{ padding: '10px 2px', borderBottom: '1px solid var(--line)' }}
-              onClick={() => { setCliente(c); if (c.tipo === 'MAYORISTA') setCanal('MAYORISTA') }}>
+              onClick={() => setCliente(c)}>
               <div className="col">
                 <span>{c.nombre}{c.alias ? ` (${c.alias})` : ''}</span>
-                <span className="muted">{c.tipo === 'FINAL' ? 'Cliente' : c.tipo.toLowerCase()}</span>
+                <span className="muted">{c.tipo}</span>
               </div>
               {c.saldo > 0 && <span className="badge warn">Debe {fmtARS(c.saldo)}</span>}
             </div>
@@ -171,11 +176,9 @@ export default function NuevaVenta() {
         <div className="card">
           <div className="row">
             <label style={{ margin: 0 }}>Productos</label>
-            <select value={canal} onChange={(e) => setCanal(e.target.value as any)}
+            <select value={canal} onChange={(e) => setCanal(e.target.value)}
               style={{ width: 'auto', padding: '6px 8px', fontSize: '0.8rem' }}>
-              <option value="MINORISTA">Minorista</option>
-              <option value="REVENDEDOR">Revendedor</option>
-              <option value="MAYORISTA">Mayorista</option>
+              {canales.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
             </select>
           </div>
           <input placeholder="Buscar sabor…" value={busProd} onChange={(e) => setBusProd(e.target.value)} style={{ margin: '8px 0' }} />

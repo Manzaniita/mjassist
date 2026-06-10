@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   getClientes, getMovimientosCliente, registrarPago, crearCliente, actualizarCliente, eliminarCliente,
-  fmtARS, fmtFecha, MEDIOS_PAGO, SaldoCliente, Venta, Pago,
+  getTiposCliente, crearTipoCliente, actualizarTipoCliente, eliminarTipoCliente,
+  fmtARS, fmtFecha, MEDIOS_PAGO, SaldoCliente, Venta, Pago, TipoCliente,
 } from '../lib/api'
 import { useApp } from '../main'
 
 export default function Clientes() {
   const { operador, toast } = useApp()
   const [clientes, setClientes] = useState<SaldoCliente[]>([])
-  const [tag, setTag] = useState<'TODOS' | 'DEUDA' | 'REVENDEDOR' | 'MAYORISTA'>('TODOS')
+  const [tipos, setTipos] = useState<TipoCliente[]>([])
+  const [tag, setTag] = useState<string>('TODOS')
   const [texto, setTexto] = useState('')
   const [sel, setSel] = useState<SaldoCliente | null>(null)
   const [movs, setMovs] = useState<{ ventas: Venta[]; pagos: Pago[] } | null>(null)
@@ -17,8 +19,11 @@ export default function Clientes() {
   const [nuevoNombre, setNuevoNombre] = useState('')
   const [editando, setEditando] = useState<SaldoCliente | null>(null)
   const [editCampos, setEditCampos] = useState<Partial<SaldoCliente>>({})
+  const [gestionTipos, setGestionTipos] = useState(false)
+  const [nuevoTipo, setNuevoTipo] = useState('')
+  const [editTipo, setEditTipo] = useState<TipoCliente | null>(null)
 
-  const cargar = () => getClientes().then(setClientes)
+  const cargar = () => Promise.all([getClientes(), getTiposCliente()]).then(([c, t]) => { setClientes(c); setTipos(t) })
   useEffect(() => { cargar() }, [])
 
   useEffect(() => {
@@ -29,8 +34,7 @@ export default function Clientes() {
     const t = texto.toLowerCase()
     return clientes.filter((c) => {
       if (tag === 'DEUDA' && c.saldo <= 0) return false
-      if (tag === 'REVENDEDOR' && c.tipo !== 'REVENDEDOR') return false
-      if (tag === 'MAYORISTA' && c.tipo !== 'MAYORISTA') return false
+      if (tag !== 'TODOS' && tag !== 'DEUDA' && c.tipo !== tag) return false
       if (!t) return true
       return [c.nombre, c.alias, c.telefono, c.instagram].join(' ').toLowerCase().includes(t)
     })
@@ -87,14 +91,52 @@ export default function Clientes() {
     }
   }
 
+  const guardarTipo = async () => {
+    if (!editTipo) return
+    try {
+      await actualizarTipoCliente(editTipo.id, { nombre: editTipo.nombre, orden: editTipo.orden })
+      toast('Tipo actualizado ✔')
+      setEditTipo(null)
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al actualizar tipo', true)
+    }
+  }
+
+  const altaTipo = async () => {
+    if (!nuevoTipo.trim()) return
+    try {
+      await crearTipoCliente(nuevoTipo.trim())
+      setNuevoTipo('')
+      toast('Tipo creado ✔')
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al crear tipo', true)
+    }
+  }
+
+  const borrarTipo = async (t: TipoCliente) => {
+    if (!window.confirm(`¿Eliminar tipo "${t.nombre}"? Los clientes con este tipo quedarán sin categoría.`)) return
+    try {
+      await eliminarTipoCliente(t.id)
+      toast('Tipo eliminado ✔')
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al eliminar tipo', true)
+    }
+  }
+
   return (
     <>
       <input placeholder="Buscar por nombre, alias, teléfono o IG…" value={texto}
         onChange={(e) => setTexto(e.target.value)} style={{ marginBottom: 8 }} />
       <div className="chips">
-        {([['TODOS', 'Todos'], ['DEUDA', 'Con deuda'], ['REVENDEDOR', 'Revendedores'], ['MAYORISTA', 'Mayoristas']] as const).map(([v, l]) => (
-          <button key={v} className={'chip' + (tag === v ? ' active' : '')} onClick={() => setTag(v)}>{l}</button>
+        <button className={'chip' + (tag === 'TODOS' ? ' active' : '')} onClick={() => setTag('TODOS')}>Todos</button>
+        <button className={'chip' + (tag === 'DEUDA' ? ' active' : '')} onClick={() => setTag('DEUDA')}>Con deuda</button>
+        {tipos.map((t) => (
+          <button key={t.id} className={'chip' + (tag === t.nombre ? ' active' : '')} onClick={() => setTag(t.nombre)}>{t.nombre}</button>
         ))}
+        <button className="btn sm ghost" onClick={() => setGestionTipos(true)}>⚙ Tipos</button>
       </div>
 
       <div className="card row">
@@ -108,7 +150,7 @@ export default function Clientes() {
             <div className="col">
               <strong>{c.nombre}{c.alias ? ` · ${c.alias}` : ''}</strong>
               <span className="muted">
-                {c.tipo === 'FINAL' ? 'Cliente' : c.tipo.toLowerCase()}
+                {c.tipo}
                 {c.telefono ? ` · ${c.telefono}` : ''}{c.instagram ? ` · @${c.instagram}` : ''}
               </span>
             </div>
@@ -215,14 +257,47 @@ export default function Clientes() {
             <label>Instagram</label>
             <input value={editCampos.instagram ?? ''} onChange={(e) => setEditCampos({ ...editCampos, instagram: e.target.value || null })} />
             <label>Tipo</label>
-            <select value={editCampos.tipo ?? 'FINAL'} onChange={(e) => setEditCampos({ ...editCampos, tipo: e.target.value as any })}>
-              <option value="FINAL">Cliente final</option>
-              <option value="REVENDEDOR">Revendedor</option>
-              <option value="MAYORISTA">Mayorista</option>
+            <select value={editCampos.tipo ?? ''} onChange={(e) => setEditCampos({ ...editCampos, tipo: e.target.value })}>
+              <option value="">—</option>
+              {tipos.map((t) => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
             </select>
             <div className="row" style={{ gap: 8, marginTop: 14 }}>
               <button type="button" className="btn block" onClick={() => setEditando(null)}>Cancelar</button>
               <button type="button" className="btn primary block" onClick={guardarEdicion}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Gestionar tipos */}
+      {gestionTipos && (
+        <div className="modal-back" onClick={() => setGestionTipos(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Gestionar tipos de cliente</h2>
+            <div className="card row" style={{ marginBottom: 10 }}>
+              <input placeholder="Nuevo tipo…" value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value)} />
+              <button type="button" className="btn sm primary" onClick={altaTipo}>Crear</button>
+            </div>
+            {tipos.map((t) => (
+              <div className="row" key={t.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+                {editTipo?.id === t.id ? (
+                  <>
+                    <input value={editTipo.nombre} onChange={(e) => setEditTipo({ ...editTipo, nombre: e.target.value })} style={{ flex: 1 }} />
+                    <input type="number" value={editTipo.orden} onChange={(e) => setEditTipo({ ...editTipo, orden: Number(e.target.value) })} style={{ width: 60 }} />
+                    <button type="button" className="btn sm primary" onClick={guardarTipo}>✔</button>
+                    <button type="button" className="btn sm ghost" onClick={() => setEditTipo(null)}>✕</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1 }}>{t.nombre}</span>
+                    <button type="button" className="btn sm ghost" onClick={() => setEditTipo(t)}>✎</button>
+                    <button type="button" className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarTipo(t)}>🗑</button>
+                  </>
+                )}
+              </div>
+            ))}
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button type="button" className="btn block" onClick={() => setGestionTipos(false)}>Cerrar</button>
             </div>
           </div>
         </div>
