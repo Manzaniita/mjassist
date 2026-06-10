@@ -3,7 +3,7 @@
 //        -> draft con botones Confirmar/Cancelar -> grabado en Supabase vía RPC.
 // Variables de entorno (Vercel): TELEGRAM_BOT_TOKEN, GROQ_API_KEY,
 //                                SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-// Creado por ddr.com.ar
+// Creado por mjimportaciones
 
 import { createClient } from '@supabase/supabase-js'
 

@@ -3,7 +3,7 @@
 PWA mobile-first + bot de Telegram para reemplazar el Google Sheets "MJ Control Humito".
 Stack: **Vite + React + TypeScript** · **Supabase (PostgreSQL)** · **Vercel** (hosting + Functions) · **Groq** (Whisper + Llama para el bot).
 
-Creado por [ddr.com.ar](https://ddr.com.ar)
+Creado por mjimportaciones
 
 ---
 

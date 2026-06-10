@@ -22,6 +22,7 @@ export default function NuevaVenta() {
   const [lineas, setLineas] = useState<Linea[]>([])
   const [canal, setCanal] = useState<'MINORISTA' | 'REVENDEDOR' | 'MAYORISTA'>('MINORISTA')
   const [entrega, setEntrega] = useState('ENTREGADO')
+  const [fechaEstimada, setFechaEstimada] = useState('')
   const [pagoInicial, setPagoInicial] = useState('')
   const [medioPago, setMedioPago] = useState(MEDIOS_PAGO[0])
   const [guardando, setGuardando] = useState(false)
@@ -99,6 +100,7 @@ export default function NuevaVenta() {
         })),
         pago_inicial: Number(pagoInicial) || 0,
         medio_pago: Number(pagoInicial) > 0 ? medioPago : null,
+        fecha_estimada: entrega !== 'ENTREGADO' ? fechaEstimada || null : null,
       })
       toast('Venta registrada ✔')
       nav('/ventas')
@@ -215,6 +217,12 @@ export default function NuevaVenta() {
                 <button key={v} className={'btn sm' + (entrega === v ? ' primary' : '')} onClick={() => setEntrega(v)}>{l}</button>
               ))}
             </div>
+            {entrega !== 'ENTREGADO' && (
+              <div style={{ marginTop: 10 }}>
+                <label>Fecha de entrega acordada</label>
+                <input type="date" value={fechaEstimada} onChange={(e) => setFechaEstimada(e.target.value)} />
+              </div>
+            )}
             <label>Pago inicial (vacío = todo a cuenta)</label>
             <div className="row">
               <input type="number" inputMode="numeric" placeholder="0" value={pagoInicial}

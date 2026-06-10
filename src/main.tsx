@@ -75,7 +75,7 @@ function Shell() {
           <Route path="/caja" element={<Caja />} />
         </Routes>
         <div className="credit">
-          Creado por <a href="https://ddr.com.ar" target="_blank" rel="noreferrer">ddr.com.ar</a>
+          Creado por mjimportaciones
         </div>
       </main>
 

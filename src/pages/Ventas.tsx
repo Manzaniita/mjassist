@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getVentas, fmtARS, fmtFecha, Venta } from '../lib/api'
+import { getVentas, fmtARS, fmtFecha, Venta, marcarEntregado } from '../lib/api'
 
 const ESTADOS: Record<string, { label: string; cls: string }> = {
   ENTREGADO: { label: 'Entregado', cls: 'ok' },
@@ -87,10 +87,25 @@ export default function Ventas() {
               {(v.venta_detalles ?? []).map((d) => `${d.cantidad}× ${d.productos.nombre}`).join(' · ')}
             </div>
             <div className="row">
-              <span className={'badge ' + est.cls}>{est.label}</span>
-              {saldo > 0.5
-                ? <span className="badge warn">Debe {fmtARS(saldo)}</span>
-                : <span className="badge ok">Paga</span>}
+              <div className="col" style={{ gap: 4 }}>
+                <span className={'badge ' + est.cls}>{est.label}</span>
+                {v.fecha_estimada && (
+                  <span className="muted" style={{ fontSize: '0.75rem' }}>
+                    Entrega acordada: {new Date(v.fecha_estimada).toLocaleDateString('es-AR')}
+                    {v.fecha_entrega ? ` · Entregado: ${new Date(v.fecha_entrega).toLocaleDateString('es-AR')}` : ''}
+                  </span>
+                )}
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                {v.estado_entrega !== 'ENTREGADO' && (
+                  <button className="btn sm primary" onClick={async () => { await marcarEntregado(v.id); cargar(); }}>
+                    Marcar entregado
+                  </button>
+                )}
+                {saldo > 0.5
+                  ? <span className="badge warn">Debe {fmtARS(saldo)}</span>
+                  : <span className="badge ok">Paga</span>}
+              </div>
             </div>
           </div>
         )

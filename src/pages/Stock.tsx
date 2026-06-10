@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   getStock, getReservado, getTemplateWhatsapp, setTemplateWhatsapp, registrarAjuste,
-  getPreciosVigentes, StockRow,
+  getPreciosVigentes, crearProducto, actualizarProducto, eliminarProducto, setPrecio, StockRow, PrecioVigente,
 } from '../lib/api'
 import { useApp } from '../main'
 
@@ -9,20 +9,22 @@ export default function Stock() {
   const { operador, toast } = useApp()
   const [stock, setStock] = useState<StockRow[]>([])
   const [reservado, setReservado] = useState<Record<string, number>>({})
-  const [precios, setPrecios] = useState<Record<string, number>>({})
+  const [preciosVigentes, setPreciosVigentes] = useState<PrecioVigente[]>([])
   const [template, setTemplate] = useState('')
   const [editTpl, setEditTpl] = useState(false)
   const [ajuste, setAjuste] = useState<{ producto_id: string; nombre: string } | null>(null)
   const [ajCant, setAjCant] = useState('')
   const [ajMotivo, setAjMotivo] = useState('')
 
+  const [nuevoProd, setNuevoProd] = useState('')
+  const [editProd, setEditProd] = useState<{ id: string; nombre: string; marca: string; sku: string; stock_minimo: number } | null>(null)
+  const [editPrecios, setEditPrecios] = useState<{ id: string; nombre: string } | null>(null)
+  const [precioInputs, setPrecioInputs] = useState<Record<string, string>>({})
+
   const cargar = () =>
     Promise.all([getStock(), getReservado(), getTemplateWhatsapp(), getPreciosVigentes()]).then(
       ([s, r, t, pv]) => {
-        setStock(s); setReservado(r); setTemplate(t)
-        setPrecios(Object.fromEntries(
-          pv.filter((p) => p.canal === 'MINORISTA').map((p) => [p.producto_id, Number(p.precio_ars)])
-        ))
+        setStock(s); setReservado(r); setTemplate(t); setPreciosVigentes(pv)
       }
     )
   useEffect(() => { cargar() }, [])
@@ -40,10 +42,19 @@ export default function Stock() {
       .sort((a, b) => a.disponible - b.disponible)
   }, [stock, reservado])
 
+  const precios = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {}
+    preciosVigentes.forEach((p) => {
+      map[p.producto_id] = map[p.producto_id] ?? {}
+      map[p.producto_id][p.canal] = Number(p.precio_ars)
+    })
+    return map
+  }, [preciosVigentes])
+
   const mensaje = useMemo(() => {
     const lineas = productos
       .filter((p) => p.disponible > 0)
-      .map((p) => `• ${p.nombre}${precios[p.id] ? ` — $${precios[p.id].toLocaleString('es-AR')}` : ''}`)
+      .map((p) => `• ${p.nombre}${precios[p.id]?.MINORISTA ? ` — $${precios[p.id].MINORISTA.toLocaleString('es-AR')}` : ''}`)
       .join('\n')
     return template.replace('{{lineas}}', lineas || '(sin stock disponible)')
   }, [productos, template, precios])
@@ -64,6 +75,63 @@ export default function Stock() {
       setAjuste(null); setAjCant(''); setAjMotivo('')
       cargar()
     } catch { toast('Error al ajustar', true) }
+  }
+
+  const altaProducto = async () => {
+    if (!nuevoProd.trim()) return
+    try {
+      await crearProducto(nuevoProd.trim())
+      toast('Producto creado ✔')
+      setNuevoProd('')
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al crear producto', true)
+    }
+  }
+
+  const guardarProducto = async () => {
+    if (!editProd) return
+    try {
+      await actualizarProducto(editProd.id, {
+        nombre: editProd.nombre,
+        marca: editProd.marca || null,
+        sku: editProd.sku || null,
+        stock_minimo: Number(editProd.stock_minimo) || 3,
+      })
+      toast('Producto actualizado ✔')
+      setEditProd(null)
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al actualizar producto', true)
+    }
+  }
+
+  const borrarProducto = async (id: string, nombre: string) => {
+    if (!window.confirm(`¿Eliminar ${nombre}?`)) return
+    try {
+      await eliminarProducto(id)
+      toast('Producto eliminado ✔')
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al eliminar producto', true)
+    }
+  }
+
+  const guardarPrecios = async () => {
+    if (!editPrecios) return
+    try {
+      for (const canal of ['MINORISTA', 'REVENDEDOR', 'MAYORISTA']) {
+        const val = Number(precioInputs[canal])
+        if (val > 0) {
+          await setPrecio(editPrecios.id, canal, val)
+        }
+      }
+      toast('Precios actualizados ✔')
+      setEditPrecios(null)
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al guardar precios', true)
+    }
   }
 
   return (
@@ -88,10 +156,18 @@ export default function Stock() {
         )}
       </div>
 
+      <div className="card row">
+        <input placeholder="Nuevo producto…" value={nuevoProd} onChange={(e) => setNuevoProd(e.target.value)} />
+        <button className="btn sm primary" onClick={altaProducto} disabled={!nuevoProd.trim()}>Crear</button>
+      </div>
+
       {productos.map((p) => {
         const max = Math.max(p.central + p.consignado, p.minimo * 3, 1)
         const pct = Math.min(100, (p.central / max) * 100)
         const nivel = p.central === 0 ? 'crit' : p.central <= p.minimo ? 'warn' : 'ok'
+        const pmin = precios[p.id]?.MINORISTA ?? 0
+        const prev = precios[p.id]?.REVENDEDOR ?? 0
+        const pmay = precios[p.id]?.MAYORISTA ?? 0
         return (
           <div className="card" key={p.id}>
             <div className="row">
@@ -106,10 +182,14 @@ export default function Stock() {
             <div className="row" style={{ marginTop: 7 }}>
               <span className="muted">
                 Central {p.central} · En calle {p.consignado} · Reservado {p.reservado}
+                {(pmin || prev || pmay) ? ` · $${pmin}/${prev}/${pmay}` : ''}
               </span>
-              <button className="btn sm ghost" onClick={() => setAjuste({ producto_id: p.id, nombre: p.nombre })}>
-                Ajustar
-              </button>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn sm ghost" onClick={() => { setEditPrecios({ id: p.id, nombre: p.nombre }); setPrecioInputs({ MINORISTA: String(pmin || ''), REVENDEDOR: String(prev || ''), MAYORISTA: String(pmay || '') }) }}>💲</button>
+                <button className="btn sm ghost" onClick={() => setAjuste({ producto_id: p.id, nombre: p.nombre })}>Ajustar</button>
+                <button className="btn sm ghost" onClick={() => setEditProd({ id: p.id, nombre: p.nombre, marca: '', sku: '', stock_minimo: p.minimo })}>✎</button>
+                <button className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarProducto(p.id, p.nombre)}>🗑</button>
+              </div>
             </div>
           </div>
         )
@@ -126,6 +206,45 @@ export default function Stock() {
             <div className="row" style={{ gap: 8, marginTop: 14 }}>
               <button className="btn block" onClick={() => setAjuste(null)}>Cancelar</button>
               <button className="btn primary block" onClick={guardarAjuste} disabled={!Number(ajCant)}>Guardar ajuste</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editProd && (
+        <div className="modal-back" onClick={() => setEditProd(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Editar producto</h2>
+            <label>Nombre</label>
+            <input value={editProd.nombre} onChange={(e) => setEditProd({ ...editProd, nombre: e.target.value })} />
+            <label>Marca</label>
+            <input value={editProd.marca} onChange={(e) => setEditProd({ ...editProd, marca: e.target.value })} />
+            <label>SKU</label>
+            <input value={editProd.sku} onChange={(e) => setEditProd({ ...editProd, sku: e.target.value })} />
+            <label>Stock mínimo</label>
+            <input type="number" inputMode="numeric" value={editProd.stock_minimo} onChange={(e) => setEditProd({ ...editProd, stock_minimo: Number(e.target.value) })} />
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button className="btn block" onClick={() => setEditProd(null)}>Cancelar</button>
+              <button className="btn primary block" onClick={guardarProducto}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editPrecios && (
+        <div className="modal-back" onClick={() => setEditPrecios(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Precios — {editPrecios.nombre}</h2>
+            {(['MINORISTA', 'REVENDEDOR', 'MAYORISTA'] as const).map((canal) => (
+              <div key={canal} style={{ marginBottom: 10 }}>
+                <label>{canal === 'MINORISTA' ? 'Minorista' : canal === 'REVENDEDOR' ? 'Revendedor' : 'Mayorista'}</label>
+                <input type="number" inputMode="numeric" value={precioInputs[canal] ?? ''}
+                  onChange={(e) => setPrecioInputs({ ...precioInputs, [canal]: e.target.value })} />
+              </div>
+            ))}
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button className="btn block" onClick={() => setEditPrecios(null)}>Cancelar</button>
+              <button className="btn primary block" onClick={guardarPrecios}>Guardar precios</button>
             </div>
           </div>
         </div>

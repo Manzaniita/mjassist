@@ -33,6 +33,8 @@ export interface Venta {
   id: string; fecha: string; usuario_id: string | null; cliente_id: string
   canal: string; estado_entrega: string; total_ars: number
   canal_origen: string; notas: string | null
+  fecha_estimada?: string | null
+  fecha_entrega?: string | null
   clientes?: { nombre: string }
   usuarios?: { nombre: string } | null
   venta_detalles?: { cantidad: number; precio_unitario: number; productos: { nombre: string } }[]
@@ -59,15 +61,52 @@ export async function getClientes(): Promise<SaldoCliente[]> {
 }
 
 export async function crearCliente(c: Partial<Cliente>): Promise<Cliente> {
-  const { data, error } = await supabase.from('clientes').insert(c).select().single()
+  const { data, error } = await supabase.from('clientes').insert(c).select()
   if (error) throw error
-  return data
+  if (!data || data.length === 0) throw new Error('No se pudo crear el cliente')
+  return data[0]
+}
+
+export async function actualizarCliente(id: string, c: Partial<Cliente>): Promise<Cliente> {
+  const { data, error } = await supabase.from('clientes').update(c).eq('id', id).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('No se pudo actualizar el cliente')
+  return data[0]
+}
+
+export async function eliminarCliente(id: string): Promise<void> {
+  const { error } = await supabase.from('clientes').update({ activo: false }).eq('id', id)
+  if (error) throw error
 }
 
 export async function getProductos(): Promise<Producto[]> {
   const { data, error } = await supabase.from('productos').select('*').eq('activo', true).order('nombre')
   if (error) throw error
   return data
+}
+
+export async function crearProducto(nombre: string, marca?: string | null, sku?: string | null, stock_minimo = 3): Promise<Producto> {
+  const { data, error } = await supabase.from('productos').insert({ nombre, marca: marca ?? null, sku: sku ?? null, stock_minimo }).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('No se pudo crear el producto')
+  return data[0]
+}
+
+export async function actualizarProducto(id: string, campos: Partial<Producto>): Promise<Producto> {
+  const { data, error } = await supabase.from('productos').update(campos).eq('id', id).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('No se pudo actualizar el producto')
+  return data[0]
+}
+
+export async function eliminarProducto(id: string): Promise<void> {
+  const { error } = await supabase.from('productos').update({ activo: false }).eq('id', id)
+  if (error) throw error
+}
+
+export async function setPrecio(producto_id: string, canal: string, precio_ars: number): Promise<void> {
+  const { error } = await supabase.from('precios').insert({ producto_id, canal, precio_ars })
+  if (error) throw error
 }
 
 export async function getPreciosVigentes(): Promise<PrecioVigente[]> {
@@ -107,7 +146,7 @@ export async function getVentas(f: FiltroVentas = {}): Promise<Venta[]> {
 
 export async function registrarVenta(params: {
   cliente_id: string; usuario_id: string; canal: string; estado_entrega: string
-  items: ItemVenta[]; pago_inicial: number; medio_pago: string | null; notas?: string
+  items: ItemVenta[]; pago_inicial: number; medio_pago: string | null; notas?: string; fecha_estimada?: string | null
 }): Promise<string> {
   const { data, error } = await supabase.rpc('registrar_venta', {
     p_cliente: params.cliente_id,
@@ -121,7 +160,16 @@ export async function registrarVenta(params: {
     p_notas: params.notas ?? null,
   })
   if (error) throw error
+  // Guardar fecha estimada si aplica
+  if (params.fecha_estimada && data) {
+    await supabase.from('ventas').update({ fecha_estimada: params.fecha_estimada }).eq('id', data)
+  }
   return data
+}
+
+export async function marcarEntregado(venta_id: string): Promise<void> {
+  const { error } = await supabase.from('ventas').update({ estado_entrega: 'ENTREGADO', fecha_entrega: new Date().toISOString() }).eq('id', venta_id)
+  if (error) throw error
 }
 
 export async function registrarPago(params: {
@@ -203,6 +251,14 @@ export async function getPagosRango(desde: string, hasta: string): Promise<Pago[
     .order('fecha', { ascending: false })
   if (error) throw error
   return data
+}
+
+export async function getSaldosPendientes(): Promise<{ total_saldo: number; clientes: SaldoCliente[] }> {
+  const { data, error } = await supabase.from('v_saldo_clientes').select('*').eq('activo', true).gt('saldo', 0).order('saldo', { ascending: false })
+  if (error) throw error
+  const clientes = (data ?? []) as SaldoCliente[]
+  const total_saldo = clientes.reduce((a, c) => a + Number(c.saldo), 0)
+  return { total_saldo, clientes }
 }
 
 export async function getTemplateWhatsapp(): Promise<string> {

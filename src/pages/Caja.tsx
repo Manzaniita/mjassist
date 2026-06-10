@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getPagosRango, fmtARS, fmtFecha, Pago } from '../lib/api'
+import { getPagosRango, getSaldosPendientes, fmtARS, fmtFecha, Pago, SaldoCliente } from '../lib/api'
 
 const hoyISO = () => new Date().toISOString().slice(0, 10)
 
@@ -7,11 +7,18 @@ export default function Caja() {
   const [desde, setDesde] = useState(hoyISO())
   const [hasta, setHasta] = useState(hoyISO())
   const [pagos, setPagos] = useState<Pago[]>([])
+  const [saldos, setSaldos] = useState<{ total_saldo: number; clientes: SaldoCliente[] } | null>(null)
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
     setCargando(true)
-    getPagosRango(desde, hasta).then(setPagos).finally(() => setCargando(false))
+    Promise.all([
+      getPagosRango(desde, hasta),
+      getSaldosPendientes(),
+    ]).then(([p, s]) => {
+      setPagos(p)
+      setSaldos(s)
+    }).finally(() => setCargando(false))
   }, [desde, hasta])
 
   const porMedio = useMemo(() => {
@@ -57,6 +64,23 @@ export default function Caja() {
           Compará estos números con lo que contaste en efectivo y lo que entró en cada cuenta. Si no coincide, falta registrar algún pago.
         </p>
       </div>
+
+      {saldos && saldos.total_saldo > 0 && (
+        <div className="card neon">
+          <h2 style={{ marginBottom: 8 }}>Saldos pendientes por cobrar</h2>
+          <div className="row" style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+            <span className="muted">Total si se cobrara todo</span>
+            <strong>{fmtARS(saldos.total_saldo)}</strong>
+          </div>
+          {saldos.clientes.slice(0, 10).map((c) => (
+            <div className="row" key={c.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+              <span>{c.nombre}</span>
+              <span style={{ color: 'var(--warn)', fontWeight: 700 }}>{fmtARS(c.saldo)}</span>
+            </div>
+          ))}
+          {saldos.clientes.length > 10 && <div className="muted" style={{ marginTop: 6 }}>Y {saldos.clientes.length - 10} más…</div>}
+        </div>
+      )}
 
       <div className="card">
         <h2 style={{ marginBottom: 8 }}>Detalle de cobros</h2>

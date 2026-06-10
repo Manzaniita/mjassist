@@ -2,7 +2,7 @@
 -- MJASSIST — Sistema de gestión MJ Importaciones
 -- Schema completo para Supabase (PostgreSQL 15+)
 -- Pegar entero en: Supabase > SQL Editor > New query > Run
--- Creado por ddr.com.ar
+-- Creado por mjimportaciones
 -- ============================================================
 
 -- ---------- ENUMS ----------
@@ -96,7 +96,9 @@ create table ventas (
   estado_entrega estado_entrega not null default 'ENTREGADO',
   total_ars numeric(12,2) not null default 0,
   canal_origen canal_origen not null default 'PWA',
-  notas text
+  notas text,
+  fecha_estimada date,
+  fecha_entrega timestamptz
 );
 create index idx_ventas_fecha on ventas(fecha desc);
 create index idx_ventas_cliente on ventas(cliente_id);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  getClientes, getMovimientosCliente, registrarPago, crearCliente,
+  getClientes, getMovimientosCliente, registrarPago, crearCliente, actualizarCliente, eliminarCliente,
   fmtARS, fmtFecha, MEDIOS_PAGO, SaldoCliente, Venta, Pago,
 } from '../lib/api'
 import { useApp } from '../main'
@@ -15,6 +15,8 @@ export default function Clientes() {
   const [pagoMonto, setPagoMonto] = useState('')
   const [pagoMedio, setPagoMedio] = useState(MEDIOS_PAGO[0])
   const [nuevoNombre, setNuevoNombre] = useState('')
+  const [editando, setEditando] = useState<SaldoCliente | null>(null)
+  const [editCampos, setEditCampos] = useState<Partial<SaldoCliente>>({})
 
   const cargar = () => getClientes().then(setClientes)
   useEffect(() => { cargar() }, [])
@@ -61,6 +63,30 @@ export default function Clientes() {
     }
   }
 
+  const guardarEdicion = async () => {
+    if (!editando) return
+    try {
+      await actualizarCliente(editando.id, editCampos)
+      toast('Cliente actualizado ✔')
+      setEditando(null)
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al actualizar cliente', true)
+    }
+  }
+
+  const borrarCliente = async (c: SaldoCliente) => {
+    if (!window.confirm(`¿Eliminar a ${c.nombre}?`)) return
+    try {
+      await eliminarCliente(c.id)
+      toast('Cliente eliminado ✔')
+      setSel(null)
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al eliminar cliente', true)
+    }
+  }
+
   return (
     <>
       <input placeholder="Buscar por nombre, alias, teléfono o IG…" value={texto}
@@ -94,13 +120,44 @@ export default function Clientes() {
       ))}
       {lista.length === 0 && <div className="empty">No hay clientes en este filtro.</div>}
 
+      {/* Editar cliente */}
+      {editando && (
+        <div className="modal-back" onClick={() => setEditando(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Editar cliente</h2>
+            <label>Nombre</label>
+            <input value={editCampos.nombre ?? ''} onChange={(e) => setEditCampos({ ...editCampos, nombre: e.target.value })} />
+            <label>Alias</label>
+            <input value={editCampos.alias ?? ''} onChange={(e) => setEditCampos({ ...editCampos, alias: e.target.value || null })} />
+            <label>Teléfono</label>
+            <input value={editCampos.telefono ?? ''} onChange={(e) => setEditCampos({ ...editCampos, telefono: e.target.value || null })} />
+            <label>Instagram</label>
+            <input value={editCampos.instagram ?? ''} onChange={(e) => setEditCampos({ ...editCampos, instagram: e.target.value || null })} />
+            <label>Tipo</label>
+            <select value={editCampos.tipo ?? 'FINAL'} onChange={(e) => setEditCampos({ ...editCampos, tipo: e.target.value as any })}>
+              <option value="FINAL">Cliente final</option>
+              <option value="REVENDEDOR">Revendedor</option>
+              <option value="MAYORISTA">Mayorista</option>
+            </select>
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button className="btn block" onClick={() => setEditando(null)}>Cancelar</button>
+              <button className="btn primary block" onClick={guardarEdicion}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Ficha 360 */}
       {sel && (
         <div className="modal-back" onClick={() => setSel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="row">
               <h2>{sel.nombre}</h2>
-              <button className="btn sm" onClick={() => setSel(null)}>Cerrar</button>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn sm ghost" onClick={() => { setEditando(sel); setEditCampos(sel) }}>✎ Editar</button>
+                <button className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarCliente(sel)}>🗑 Eliminar</button>
+                <button className="btn sm" onClick={() => setSel(null)}>Cerrar</button>
+              </div>
             </div>
             <div className="grid3" style={{ margin: '12px 0' }}>
               <div className="card col" style={{ margin: 0 }}>
