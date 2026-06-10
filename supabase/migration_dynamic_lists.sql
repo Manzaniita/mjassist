@@ -44,7 +44,29 @@ ALTER TABLE precios ALTER COLUMN canal TYPE TEXT;
 ALTER TABLE ventas ALTER COLUMN canal TYPE TEXT;
 ALTER TABLE clientes ALTER COLUMN tipo TYPE TEXT;
 
--- 4. Recrear funciones con TEXT en lugar de canal_precio
+-- 4. Recrear vistas primero (porque las funciones dependen de v_precio_vigente)
+CREATE OR REPLACE VIEW v_precio_vigente AS
+SELECT DISTINCT ON (producto_id, canal)
+  producto_id, canal, precio_ars, vigente_desde
+FROM precios
+WHERE vigente_desde <= NOW()
+ORDER BY producto_id, canal, vigente_desde DESC;
+
+CREATE OR REPLACE VIEW v_saldo_clientes AS
+SELECT
+  c.id, c.nombre, c.alias, c.telefono, c.instagram, c.tipo, c.activo,
+  COALESCE(v.total_ventas, 0) AS total_ventas,
+  COALESCE(p.total_pagos, 0) AS total_pagos,
+  COALESCE(v.total_ventas, 0) - COALESCE(p.total_pagos, 0) AS saldo
+FROM clientes c
+LEFT JOIN (
+  SELECT cliente_id, SUM(total_ars) AS total_ventas FROM ventas GROUP BY cliente_id
+) v ON v.cliente_id = c.id
+LEFT JOIN (
+  SELECT cliente_id, SUM(monto) AS total_pagos FROM pagos GROUP BY cliente_id
+) p ON p.cliente_id = c.id;
+
+-- 5. Recrear funciones con TEXT en lugar de canal_precio
 CREATE OR REPLACE FUNCTION fn_precio_vigente(p_producto UUID, p_canal TEXT)
 RETURNS NUMERIC LANGUAGE SQL STABLE AS $$
   SELECT COALESCE(
@@ -287,28 +309,6 @@ BEGIN
 
   RETURN v_compra;
 END $$;
-
--- 5. Recrear vistas
-CREATE OR REPLACE VIEW v_precio_vigente AS
-SELECT DISTINCT ON (producto_id, canal)
-  producto_id, canal, precio_ars, vigente_desde
-FROM precios
-WHERE vigente_desde <= NOW()
-ORDER BY producto_id, canal, vigente_desde DESC;
-
-CREATE OR REPLACE VIEW v_saldo_clientes AS
-SELECT
-  c.id, c.nombre, c.alias, c.telefono, c.instagram, c.tipo, c.activo,
-  COALESCE(v.total_ventas, 0) AS total_ventas,
-  COALESCE(p.total_pagos, 0) AS total_pagos,
-  COALESCE(v.total_ventas, 0) - COALESCE(p.total_pagos, 0) AS saldo
-FROM clientes c
-LEFT JOIN (
-  SELECT cliente_id, SUM(total_ars) AS total_ventas FROM ventas GROUP BY cliente_id
-) v ON v.cliente_id = c.id
-LEFT JOIN (
-  SELECT cliente_id, SUM(monto) AS total_pagos FROM pagos GROUP BY cliente_id
-) p ON p.cliente_id = c.id;
 
 -- 6. RLS para las nuevas tablas
 ALTER TABLE canales_precio ENABLE ROW LEVEL SECURITY;
