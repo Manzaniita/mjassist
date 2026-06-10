@@ -51,10 +51,14 @@ export default function Clientes() {
 
   const altaCliente = async () => {
     if (!nuevoNombre.trim()) return
-    await crearCliente({ nombre: nuevoNombre.trim() })
-    setNuevoNombre('')
-    toast('Cliente creado ✔')
-    cargar()
+    try {
+      await crearCliente({ nombre: nuevoNombre.trim() })
+      setNuevoNombre('')
+      toast('Cliente creado ✔')
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al crear cliente', true)
+    }
   }
 
   return (
@@ -69,7 +73,7 @@ export default function Clientes() {
 
       <div className="card row">
         <input placeholder="Nuevo cliente…" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} />
-        <button className="btn sm primary" onClick={altaCliente}>Crear</button>
+        <button className="btn sm primary" onClick={altaCliente} disabled={!nuevoNombre.trim()}>Crear</button>
       </div>
 
       {lista.map((c) => (
