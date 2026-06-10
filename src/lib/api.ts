@@ -1,9 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL as string,
-  import.meta.env.VITE_SUPABASE_ANON_KEY as string
-)
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string) || ''
+const supabaseKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || ''
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('[MJ Assist] Faltan variables de entorno: VITE_SUPABASE_URL y/o VITE_SUPABASE_ANON_KEY')
+}
+
+export const supabase = createClient(supabaseUrl, supabaseKey)
 
 // ---------- Tipos ----------
 export interface Usuario { id: string; nombre: string; rol: string }
