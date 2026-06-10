@@ -97,9 +97,16 @@ BEGIN
   RETURN v_venta;
 END $$;
 
--- 5. RLS para las nuevas tablas
+-- 5. RLS para las nuevas tablas (solo si no existen ya las políticas)
 ALTER TABLE canales_precio ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS acceso_interno ON canales_precio FOR ALL TO anon, authenticated USING (TRUE) WITH CHECK (TRUE);
-
 ALTER TABLE tipos_cliente ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS acceso_interno ON tipos_cliente FOR ALL TO anon, authenticated USING (TRUE) WITH CHECK (TRUE);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'canales_precio' AND policyname = 'acceso_interno') THEN
+    CREATE POLICY acceso_interno ON canales_precio FOR ALL TO anon, authenticated USING (TRUE) WITH CHECK (TRUE);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'tipos_cliente' AND policyname = 'acceso_interno') THEN
+    CREATE POLICY acceso_interno ON tipos_cliente FOR ALL TO anon, authenticated USING (TRUE) WITH CHECK (TRUE);
+  END IF;
+END $$;
