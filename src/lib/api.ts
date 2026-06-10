@@ -38,6 +38,7 @@ export interface Venta {
   canal_origen: string; notas: string | null
   fecha_estimada?: string | null
   fecha_entrega?: string | null
+  cancelada?: boolean
   clientes?: { nombre: string }
   usuarios?: { nombre: string } | null
   venta_detalles?: { cantidad: number; precio_unitario: number; productos: { nombre: string } }[]
@@ -183,6 +184,11 @@ export async function marcarEntregado(venta_id: string): Promise<void> {
   if (error) throw error
 }
 
+export async function cancelarVenta(venta_id: string, usuario_id: string): Promise<void> {
+  const { error } = await supabase.rpc('cancelar_venta', { p_venta: venta_id, p_usuario: usuario_id })
+  if (error) throw error
+}
+
 export async function registrarPago(params: {
   cliente_id: string; monto: number; medio_pago: string; usuario_id: string
   tipo?: string; venta_id?: string | null; notas?: string
@@ -246,6 +252,24 @@ export async function registrarRendicion(params: {
   })
   if (error) throw error
   return data
+}
+
+// Devuelve el precio congelado de la última consignación por producto para un revendedor
+export async function getPreciosConsignacionRevendedor(revendedor_id: string): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from('consignaciones')
+    .select('fecha, consignacion_detalles(producto_id, precio_unitario)')
+    .eq('revendedor_id', revendedor_id)
+    .order('fecha', { ascending: false })
+    .limit(200)
+  if (error) throw error
+  const map: Record<string, number> = {}
+  for (const row of (data ?? []) as any[]) {
+    for (const d of row.consignacion_detalles ?? []) {
+      if (!map[d.producto_id]) map[d.producto_id] = Number(d.precio_unitario)
+    }
+  }
+  return map
 }
 
 export async function registrarAjuste(producto_id: string, cantidad: number, usuario_id: string, motivo: string) {

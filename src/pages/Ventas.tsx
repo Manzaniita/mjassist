@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getVentas, fmtARS, fmtFecha, Venta, marcarEntregado } from '../lib/api'
+import {
+  getVentas, fmtARS, fmtFecha, Venta,
+  marcarEntregado, cancelarVenta, registrarPago,
+  MEDIOS_PAGO,
+} from '../lib/api'
+import { useApp } from '../main'
 
 const ESTADOS: Record<string, { label: string; cls: string }> = {
   ENTREGADO: { label: 'Entregado', cls: 'ok' },
@@ -9,7 +14,10 @@ const ESTADOS: Record<string, { label: string; cls: string }> = {
   PENDIENTE: { label: 'Pendiente', cls: 'warn' },
 }
 
+type ModalPago = null | { venta: Venta; monto: string; medio: string; tipo: 'PAGO' | 'SENA' }
+
 export default function Ventas() {
+  const { operador, toast } = useApp()
   const [ventas, setVentas] = useState<Venta[]>([])
   const [texto, setTexto] = useState('')
   const [filtroPago, setFiltroPago] = useState<'TODAS' | 'DEBE' | 'PAGAS'>('TODAS')
@@ -17,6 +25,7 @@ export default function Ventas() {
   const [hasta, setHasta] = useState('')
   const [verFiltros, setVerFiltros] = useState(false)
   const [cargando, setCargando] = useState(true)
+  const [modalPago, setModalPago] = useState<ModalPago>(null)
 
   const cargar = () => {
     setCargando(true)
@@ -29,6 +38,15 @@ export default function Ventas() {
   const lista = useMemo(() => {
     const t = texto.toLowerCase()
     return ventas.filter((v) => {
+      if (v.cancelada) {
+        // Las canceladas se muestran siempre a menos que el filtro de texto las excluya
+        if (!t) return true
+        const blob = [
+          v.clientes?.nombre, v.usuarios?.nombre,
+          ...(v.venta_detalles ?? []).map((d) => d.productos.nombre),
+        ].join(' ').toLowerCase()
+        return blob.includes(t)
+      }
       const pagado = (v.pagos ?? []).reduce((a, p) => a + Number(p.monto), 0)
       const debe = Number(v.total_ars) - pagado > 0.5
       if (filtroPago === 'DEBE' && !debe) return false
@@ -41,6 +59,44 @@ export default function Ventas() {
       return blob.includes(t)
     })
   }, [ventas, texto, filtroPago])
+
+  const handleCancelar = async (v: Venta) => {
+    if (!operador) return
+    if (!confirm(`¿Cancelar la venta de ${v.clientes?.nombre ?? ''} por ${fmtARS(Number(v.total_ars))}?\n\nEl stock volverá a Central.`)) return
+    try {
+      await cancelarVenta(v.id, operador.id)
+      toast('Venta cancelada ✔')
+      cargar()
+    } catch (e: any) {
+      toast('Error: ' + (e.message ?? e), true)
+    }
+  }
+
+  const abrirPago = (venta: Venta) => {
+    const saldo = Number(venta.total_ars) - (venta.pagos ?? []).reduce((a, p) => a + Number(p.monto), 0)
+    setModalPago({ venta, monto: String(Math.round(saldo)), medio: MEDIOS_PAGO[0], tipo: 'PAGO' })
+  }
+
+  const confirmarPago = async () => {
+    if (!modalPago || !operador) return
+    const m = Number(modalPago.monto)
+    if (!m || m <= 0) return
+    try {
+      await registrarPago({
+        cliente_id: modalPago.venta.cliente_id,
+        venta_id: modalPago.venta.id,
+        monto: m,
+        medio_pago: modalPago.medio,
+        usuario_id: operador.id,
+        tipo: modalPago.tipo,
+      })
+      toast('Pago registrado ✔')
+      setModalPago(null)
+      cargar()
+    } catch (e: any) {
+      toast('Error: ' + (e.message ?? e), true)
+    }
+  }
 
   return (
     <>
@@ -75,7 +131,7 @@ export default function Ventas() {
         const saldo = Number(v.total_ars) - pagado
         const est = ESTADOS[v.estado_entrega] ?? ESTADOS.ENTREGADO
         return (
-          <div className="card" key={v.id}>
+          <div className="card" key={v.id} style={v.cancelada ? { opacity: 0.7 } : undefined}>
             <div className="row">
               <div className="col">
                 <strong>{v.clientes?.nombre ?? '—'}</strong>
@@ -88,23 +144,41 @@ export default function Ventas() {
             </div>
             <div className="row">
               <div className="col" style={{ gap: 4 }}>
-                <span className={'badge ' + est.cls}>{est.label}</span>
-                {v.fecha_estimada && (
-                  <span className="muted" style={{ fontSize: '0.75rem' }}>
-                    Entrega acordada: {new Date(v.fecha_estimada).toLocaleDateString('es-AR')}
-                    {v.fecha_entrega ? ` · Entregado: ${new Date(v.fecha_entrega).toLocaleDateString('es-AR')}` : ''}
-                  </span>
+                {v.cancelada ? (
+                  <span className="badge" style={{ background: '#ef4444', color: '#fff' }}>Cancelada</span>
+                ) : (
+                  <>
+                    <span className={'badge ' + est.cls}>{est.label}</span>
+                    {v.fecha_estimada && (
+                      <span className="muted" style={{ fontSize: '0.75rem' }}>
+                        Entrega acordada: {new Date(v.fecha_estimada).toLocaleDateString('es-AR')}
+                        {v.fecha_entrega ? ` · Entregado: ${new Date(v.fecha_entrega).toLocaleDateString('es-AR')}` : ''}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
-              <div className="row" style={{ gap: 6 }}>
-                {v.estado_entrega !== 'ENTREGADO' && (
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {!v.cancelada && v.estado_entrega !== 'ENTREGADO' && (
                   <button className="btn sm primary" onClick={async () => { await marcarEntregado(v.id); cargar(); }}>
                     Marcar entregado
                   </button>
                 )}
-                {saldo > 0.5
-                  ? <span className="badge warn">Debe {fmtARS(saldo)}</span>
-                  : <span className="badge ok">Paga</span>}
+                {!v.cancelada && saldo > 0.5 && (
+                  <button className="btn sm" style={{ color: '#2dd4a7', borderColor: '#2dd4a7' }} onClick={() => abrirPago(v)}>
+                    + Pago
+                  </button>
+                )}
+                {!v.cancelada && (
+                  <button className="btn sm" style={{ color: '#ef4444' }} onClick={() => handleCancelar(v)}>
+                    Cancelar
+                  </button>
+                )}
+                {v.cancelada
+                  ? <span className="badge" style={{ background: '#444', color: '#aaa' }}>Anulada</span>
+                  : saldo > 0.5
+                    ? <span className="badge warn">Debe {fmtARS(saldo)}</span>
+                    : <span className="badge ok">Paga</span>}
               </div>
             </div>
           </div>
@@ -112,6 +186,48 @@ export default function Ventas() {
       })}
 
       <Link to="/ventas/nueva" className="fab" aria-label="Nueva venta">+</Link>
+
+      {modalPago && (
+        <div className="modal-back" onClick={() => setModalPago(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Registrar pago</h3>
+            <p className="muted" style={{ margin: '6px 0 12px' }}>
+              {modalPago.venta.clientes?.nombre} — Venta {fmtARS(Number(modalPago.venta.total_ars))}
+            </p>
+            <label>Monto</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={modalPago.monto}
+              onChange={(e) => setModalPago({ ...modalPago, monto: e.target.value })}
+              autoFocus
+            />
+            <label>Medio de pago</label>
+            <select
+              value={modalPago.medio}
+              onChange={(e) => setModalPago({ ...modalPago, medio: e.target.value })}
+            >
+              {MEDIOS_PAGO.map((m) => <option key={m}>{m}</option>)}
+            </select>
+            <label>Tipo</label>
+            <div className="chips" style={{ marginBottom: 8 }}>
+              {(['PAGO', 'SENA'] as const).map((t) => (
+                <button
+                  key={t}
+                  className={'chip' + (modalPago.tipo === t ? ' active' : '')}
+                  onClick={() => setModalPago({ ...modalPago, tipo: t })}
+                >
+                  {t === 'PAGO' ? 'Pago / Anticipo' : 'Seña'}
+                </button>
+              ))}
+            </div>
+            <div className="row" style={{ gap: 8, marginTop: 12 }}>
+              <button className="btn block" onClick={() => setModalPago(null)}>Cerrar</button>
+              <button className="btn primary block" onClick={confirmarPago}>Confirmar pago</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

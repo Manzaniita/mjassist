@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   getClientes, getStock, getProductos, getPreciosVigentes,
-  registrarConsignacion, registrarRendicion,
+  registrarConsignacion, registrarRendicion, registrarPago,
+  getPreciosConsignacionRevendedor,
   fmtARS, MEDIOS_PAGO, SaldoCliente, StockRow, Producto,
 } from '../lib/api'
 import { useApp } from '../main'
 
-type Modo = null | { tipo: 'ENTREGA' | 'RENDICION'; rev: SaldoCliente }
+type TipoModo = 'ENTREGA' | 'REGISTRAR_VENTA' | 'REGISTRAR_PAGO'
+type Modo =
+  | null
+  | { tipo: 'ENTREGA'; rev: SaldoCliente }
+  | { tipo: 'REGISTRAR_VENTA'; rev: SaldoCliente }
+  | { tipo: 'REGISTRAR_PAGO'; rev: SaldoCliente }
 
 export default function Revendedores() {
   const { operador, toast } = useApp()
@@ -15,20 +21,33 @@ export default function Revendedores() {
   const [productos, setProductos] = useState<Producto[]>([])
   const [precioRev, setPrecioRev] = useState<Record<string, number>>({})
   const [modo, setModo] = useState<Modo>(null)
-  // ENTREGA: producto_id -> cantidad | RENDICION: producto_id -> {vendidas, devueltas}
-  const [entrega, setEntrega] = useState<Record<string, number>>({})
-  const [rend, setRend] = useState<Record<string, { vendidas: number; devueltas: number }>>({})
-  const [monto, setMonto] = useState('')
-  const [medio, setMedio] = useState(MEDIOS_PAGO[0])
   const [guardando, setGuardando] = useState(false)
+
+  // ENTREGA
+  const [entrega, setEntrega] = useState<Record<string, number>>({})
+  const [precioEntrega, setPrecioEntrega] = useState<Record<string, number>>({})
+
+  // REGISTRAR VENTA (ex-rendición)
+  const [regVenta, setRegVenta] = useState<Record<string, { vendidas: number; devueltas: number }>>({})
+  const [rvPago, setRvPago] = useState<{ activo: boolean; monto: string; medio: string }>({
+    activo: false, monto: '', medio: MEDIOS_PAGO[0],
+  })
+
+  // REGISTRAR PAGO
+  const [preciosCongelados, setPreciosCongelados] = useState<Record<string, number>>({})
+  const [pagoMonto, setPagoMonto] = useState('')
+  const [pagoMedio, setPagoMedio] = useState(MEDIOS_PAGO[0])
+  const [pagoProducto, setPagoProducto] = useState('')
+  const [pagoNotas, setPagoNotas] = useState('')
 
   const cargar = () =>
     Promise.all([getClientes(), getStock(), getProductos(), getPreciosVigentes()]).then(
       ([c, s, p, pv]) => {
         setClientes(c); setStock(s); setProductos(p)
-        setPrecioRev(Object.fromEntries(
+        const revMap = Object.fromEntries(
           pv.filter((x) => x.canal?.toUpperCase() === 'REVENDEDOR').map((x) => [x.producto_id, Number(x.precio_ars)])
-        ))
+        )
+        setPrecioRev(revMap)
       }
     )
   useEffect(() => { cargar() }, [])
@@ -38,8 +57,25 @@ export default function Revendedores() {
   const stockCentral = useMemo(() =>
     Object.fromEntries(stock.filter((s) => s.es_central).map((s) => [s.producto_id, s.cantidad])), [stock])
 
-  const abrir = (tipo: 'ENTREGA' | 'RENDICION', rev: SaldoCliente) => {
-    setModo({ tipo, rev }); setEntrega({}); setRend({}); setMonto('')
+  const abrir = async (tipo: TipoModo, rev: SaldoCliente) => {
+    setModo({ tipo, rev } as Modo)
+    setEntrega({})
+    setPrecioEntrega({})
+    setRegVenta({})
+    setRvPago({ activo: false, monto: '', medio: MEDIOS_PAGO[0] })
+    setPagoMonto('')
+    setPagoMedio(MEDIOS_PAGO[0])
+    setPagoProducto('')
+    setPagoNotas('')
+
+    if (tipo === 'REGISTRAR_PAGO') {
+      try {
+        const map = await getPreciosConsignacionRevendedor(rev.id)
+        setPreciosCongelados(map)
+      } catch {
+        setPreciosCongelados({})
+      }
+    }
   }
 
   const confirmar = async () => {
@@ -49,20 +85,53 @@ export default function Revendedores() {
       if (modo.tipo === 'ENTREGA') {
         const items = Object.entries(entrega)
           .filter(([, c]) => c > 0)
-          .map(([producto_id, cantidad]) => ({ producto_id, cantidad, precio_unitario: precioRev[producto_id] ?? null }))
-        if (items.length === 0) return
+          .map(([producto_id, cantidad]) => ({
+            producto_id,
+            cantidad,
+            precio_unitario: precioEntrega[producto_id] ?? precioRev[producto_id] ?? null,
+          }))
+        if (items.length === 0) {
+          setGuardando(false)
+          return
+        }
         await registrarConsignacion({ revendedor_id: modo.rev.id, usuario_id: operador.id, items })
         toast('Entrega registrada ✔')
-      } else {
-        const items = Object.entries(rend)
+      } else if (modo.tipo === 'REGISTRAR_VENTA') {
+        const items = Object.entries(regVenta)
           .filter(([, v]) => v.vendidas > 0 || v.devueltas > 0)
           .map(([producto_id, v]) => ({ producto_id, ...v }))
-        if (items.length === 0 && !Number(monto)) return
+        const hayItems = items.length > 0
+        const hayPago = rvPago.activo && Number(rvPago.monto) > 0
+        if (!hayItems && !hayPago) {
+          setGuardando(false)
+          return
+        }
         await registrarRendicion({
-          revendedor_id: modo.rev.id, usuario_id: operador.id, items,
-          monto_pago: Number(monto) || 0, medio_pago: Number(monto) > 0 ? medio : null,
+          revendedor_id: modo.rev.id,
+          usuario_id: operador.id,
+          items,
+          monto_pago: hayPago ? Number(rvPago.monto) : 0,
+          medio_pago: hayPago ? rvPago.medio : null,
         })
-        toast('Rendición registrada ✔')
+        toast('Venta de revendedor registrada ✔')
+      } else if (modo.tipo === 'REGISTRAR_PAGO') {
+        const m = Number(pagoMonto)
+        if (!m || m <= 0) {
+          setGuardando(false)
+          return
+        }
+        const notas = pagoProducto
+          ? `Pago por: ${productos.find((p) => p.id === pagoProducto)?.nombre ?? pagoProducto}${pagoNotas ? ' — ' + pagoNotas : ''}`
+          : pagoNotas || null
+        await registrarPago({
+          cliente_id: modo.rev.id,
+          monto: m,
+          medio_pago: pagoMedio,
+          usuario_id: operador.id,
+          tipo: 'PAGO',
+          notas: notas ?? undefined,
+        })
+        toast('Pago registrado ✔')
       }
       setModo(null)
       cargar()
@@ -70,6 +139,8 @@ export default function Revendedores() {
       toast('Error: ' + (e.message ?? e), true)
     } finally { setGuardando(false) }
   }
+
+  const enCalleDeModal = modo && modo.tipo !== 'ENTREGA' ? stockDe(modo.rev.id) : []
 
   return (
     <>
@@ -100,12 +171,17 @@ export default function Revendedores() {
                 Mercadería en calle valorizada: <strong style={{ color: 'var(--txt)' }}>{fmtARS(valorizado)}</strong>
               </div>
             )}
-            <div className="row" style={{ gap: 8 }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <button className="btn sm block" onClick={() => abrir('ENTREGA', r)}>+ Entregar mercadería</button>
-              <button className="btn sm block primary" onClick={() => abrir('RENDICION', r)}
+              <button className="btn sm block primary" onClick={() => abrir('REGISTRAR_VENTA', r)}
                 disabled={enCalle.length === 0 && r.saldo <= 0}>
-                Rendición
+                Registrar venta
               </button>
+              {r.saldo > 0 && (
+                <button className="btn sm block" style={{ color: '#2dd4a7', borderColor: '#2dd4a7' }} onClick={() => abrir('REGISTRAR_PAGO', r)}>
+                  Registrar pago
+                </button>
+              )}
             </div>
           </div>
         )
@@ -114,41 +190,60 @@ export default function Revendedores() {
       {modo && (
         <div className="modal-back" onClick={() => setModo(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{modo.tipo === 'ENTREGA' ? 'Entregar a' : 'Rendición de'} {modo.rev.nombre}</h2>
+            <h2>
+              {modo.tipo === 'ENTREGA' && 'Entregar a '}
+              {modo.tipo === 'REGISTRAR_VENTA' && 'Registrar venta de '}
+              {modo.tipo === 'REGISTRAR_PAGO' && 'Registrar pago de '}
+              {modo.rev.nombre}
+            </h2>
 
+            {/* ---------- ENTREGA ---------- */}
             {modo.tipo === 'ENTREGA' && (
               <>
                 <p className="muted" style={{ margin: '6px 0 10px' }}>
-                  Sale de Central al precio revendedor vigente (queda congelado en el remito).
+                  Editá el precio si acordaste algo distinto al vigente.
                 </p>
                 {productos.filter((p) => (stockCentral[p.id] ?? 0) > 0).map((p) => (
-                  <div className="row" key={p.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-                    <div className="col">
+                  <div className="row" key={p.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                    <div className="col" style={{ flex: 1, minWidth: 140 }}>
                       <span>{p.nombre}</span>
-                      <span className="muted">Central: {stockCentral[p.id]} · {fmtARS(precioRev[p.id] ?? 0)}</span>
+                      <span className="muted">Central: {stockCentral[p.id]}</span>
                     </div>
-                    <div className="row" style={{ gap: 6 }}>
-                      <button className="qty-btn" onClick={() =>
-                        setEntrega({ ...entrega, [p.id]: Math.max(0, (entrega[p.id] ?? 0) - 1) })}>−</button>
-                      <span style={{ minWidth: 22, textAlign: 'center', fontWeight: 700 }}>{entrega[p.id] ?? 0}</span>
-                      <button className="qty-btn" onClick={() =>
-                        setEntrega({ ...entrega, [p.id]: Math.min(stockCentral[p.id], (entrega[p.id] ?? 0) + 1) })}>+</button>
+                    <div className="col" style={{ alignItems: 'flex-end', gap: 4 }}>
+                      <div className="row" style={{ gap: 6 }}>
+                        <span className="muted" style={{ fontSize: '0.8rem' }}>$</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          style={{ width: 90, textAlign: 'right' }}
+                          value={precioEntrega[p.id] ?? precioRev[p.id] ?? 0}
+                          onChange={(e) => setPrecioEntrega({ ...precioEntrega, [p.id]: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="qty-btn" onClick={() =>
+                          setEntrega({ ...entrega, [p.id]: Math.max(0, (entrega[p.id] ?? 0) - 1) })}>−</button>
+                        <span style={{ minWidth: 22, textAlign: 'center', fontWeight: 700 }}>{entrega[p.id] ?? 0}</span>
+                        <button className="qty-btn" onClick={() =>
+                          setEntrega({ ...entrega, [p.id]: Math.min(stockCentral[p.id], (entrega[p.id] ?? 0) + 1) })}>+</button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </>
             )}
 
-            {modo.tipo === 'RENDICION' && (
+            {/* ---------- REGISTRAR VENTA ---------- */}
+            {modo.tipo === 'REGISTRAR_VENTA' && (
               <>
                 <p className="muted" style={{ margin: '6px 0 10px' }}>
-                  Marcá cuántas vendió y cuántas devuelve. Las vendidas suman a su deuda al precio congelado; el pago la baja.
+                  Marcá cuántas vendió y cuántas devuelve. Las vendidas generan deuda al precio congelado.
                 </p>
-                {stockDe(modo.rev.id).map((s) => {
-                  const v = rend[s.producto_id] ?? { vendidas: 0, devueltas: 0 }
+                {enCalleDeModal.map((s) => {
+                  const v = regVenta[s.producto_id] ?? { vendidas: 0, devueltas: 0 }
                   const tope = s.cantidad - v.vendidas - v.devueltas
                   const set = (k: 'vendidas' | 'devueltas', d: number) =>
-                    setRend({ ...rend, [s.producto_id]: { ...v, [k]: Math.max(0, Math.min(v[k] + d, v[k] + (d > 0 ? tope : 0))) } })
+                    setRegVenta({ ...regVenta, [s.producto_id]: { ...v, [k]: Math.max(0, Math.min(v[k] + d, v[k] + (d > 0 ? tope : 0))) } })
                   return (
                     <div key={s.producto_id} style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
                       <div className="row">
@@ -174,13 +269,96 @@ export default function Revendedores() {
                     </div>
                   )
                 })}
-                <label>Pago que entrega (opcional)</label>
-                <div className="row" style={{ gap: 8 }}>
-                  <input type="number" inputMode="numeric" placeholder="0" value={monto} onChange={(e) => setMonto(e.target.value)} />
-                  <select value={medio} onChange={(e) => setMedio(e.target.value)} style={{ width: 150 }}>
-                    {MEDIOS_PAGO.map((m) => <option key={m}>{m}</option>)}
-                  </select>
+
+                <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+                  <label>¿El revendedor te pagó?</label>
+                  <div className="chips" style={{ margin: '6px 0 10px' }}>
+                    <button
+                      className={'chip' + (!rvPago.activo ? ' active' : '')}
+                      onClick={() => setRvPago({ ...rvPago, activo: false })}
+                    >
+                      Todavía no pagó
+                    </button>
+                    <button
+                      className={'chip' + (rvPago.activo ? ' active' : '')}
+                      onClick={() => setRvPago({ ...rvPago, activo: true })}
+                    >
+                      Me pagó
+                    </button>
+                  </div>
+
+                  {rvPago.activo && (
+                    <div className="row" style={{ gap: 8 }}>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        placeholder="Monto"
+                        value={rvPago.monto}
+                        onChange={(e) => setRvPago({ ...rvPago, monto: e.target.value })}
+                        style={{ flex: 1 }}
+                      />
+                      <select
+                        value={rvPago.medio}
+                        onChange={(e) => setRvPago({ ...rvPago, medio: e.target.value })}
+                        style={{ width: 150 }}
+                      >
+                        {MEDIOS_PAGO.map((m) => <option key={m}>{m}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
+              </>
+            )}
+
+            {/* ---------- REGISTRAR PAGO ---------- */}
+            {modo.tipo === 'REGISTRAR_PAGO' && (
+              <>
+                <p className="muted" style={{ margin: '6px 0 10px' }}>
+                  Deuda actual: <strong>{fmtARS(modo.rev.saldo)}</strong>
+                </p>
+                {enCalleDeModal.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <p className="muted" style={{ fontSize: '0.8rem', marginBottom: 6 }}>Mercadería en su poder:</p>
+                    {enCalleDeModal.map((s) => {
+                      const precio = preciosCongelados[s.producto_id] ?? precioRev[s.producto_id] ?? 0
+                      return (
+                        <div key={s.producto_id} className="row" style={{ padding: '4px 0', fontSize: '0.85rem' }}>
+                          <span>{s.cantidad}× {s.producto}</span>
+                          <span className="muted">{fmtARS(precio)} c/u · {fmtARS(s.cantidad * precio)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <label>Monto del pago</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={pagoMonto}
+                  onChange={(e) => setPagoMonto(e.target.value)}
+                  autoFocus
+                />
+                <label>Medio de pago</label>
+                <select value={pagoMedio} onChange={(e) => setPagoMedio(e.target.value)}>
+                  {MEDIOS_PAGO.map((m) => <option key={m}>{m}</option>)}
+                </select>
+                <label>Asociar a producto (opcional)</label>
+                <select value={pagoProducto} onChange={(e) => setPagoProducto(e.target.value)}>
+                  <option value="">Pago general</option>
+                  {enCalleDeModal.map((s) => (
+                    <option key={s.producto_id} value={s.producto_id}>
+                      {s.producto} ({s.cantidad} en calle)
+                    </option>
+                  ))}
+                </select>
+                <label>Notas (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: pago de 2 Baja Splash"
+                  value={pagoNotas}
+                  onChange={(e) => setPagoNotas(e.target.value)}
+                />
               </>
             )}
 
