@@ -52,7 +52,7 @@ export default function Clientes() {
   }
 
   const altaCliente = async () => {
-    if (!nuevoNombre.trim()) return
+    if (!nuevoNombre.trim()) { toast('Escribí un nombre para el cliente', true); return }
     try {
       await crearCliente({ nombre: nuevoNombre.trim() })
       setNuevoNombre('')
@@ -99,7 +99,7 @@ export default function Clientes() {
 
       <div className="card row">
         <input placeholder="Nuevo cliente…" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} />
-        <button className="btn sm primary" onClick={altaCliente} disabled={!nuevoNombre.trim()}>Crear</button>
+        <button type="button" className="btn sm primary" onClick={altaCliente}>Crear</button>
       </div>
 
       {lista.map((c) => (
@@ -112,40 +112,16 @@ export default function Clientes() {
                 {c.telefono ? ` · ${c.telefono}` : ''}{c.instagram ? ` · @${c.instagram}` : ''}
               </span>
             </div>
-            {c.saldo > 0
-              ? <span className="badge warn">Debe {fmtARS(c.saldo)}</span>
-              : <span className="badge ok">Al día</span>}
+            <div className="row" style={{ gap: 6 }}>
+              <button type="button" className="btn sm ghost" onClick={(e) => { e.stopPropagation(); setEditando(c); setEditCampos(c) }}>✎</button>
+              {c.saldo > 0
+                ? <span className="badge warn">Debe {fmtARS(c.saldo)}</span>
+                : <span className="badge ok">Al día</span>}
+            </div>
           </div>
         </div>
       ))}
       {lista.length === 0 && <div className="empty">No hay clientes en este filtro.</div>}
-
-      {/* Editar cliente */}
-      {editando && (
-        <div className="modal-back" onClick={() => setEditando(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Editar cliente</h2>
-            <label>Nombre</label>
-            <input value={editCampos.nombre ?? ''} onChange={(e) => setEditCampos({ ...editCampos, nombre: e.target.value })} />
-            <label>Alias</label>
-            <input value={editCampos.alias ?? ''} onChange={(e) => setEditCampos({ ...editCampos, alias: e.target.value || null })} />
-            <label>Teléfono</label>
-            <input value={editCampos.telefono ?? ''} onChange={(e) => setEditCampos({ ...editCampos, telefono: e.target.value || null })} />
-            <label>Instagram</label>
-            <input value={editCampos.instagram ?? ''} onChange={(e) => setEditCampos({ ...editCampos, instagram: e.target.value || null })} />
-            <label>Tipo</label>
-            <select value={editCampos.tipo ?? 'FINAL'} onChange={(e) => setEditCampos({ ...editCampos, tipo: e.target.value as any })}>
-              <option value="FINAL">Cliente final</option>
-              <option value="REVENDEDOR">Revendedor</option>
-              <option value="MAYORISTA">Mayorista</option>
-            </select>
-            <div className="row" style={{ gap: 8, marginTop: 14 }}>
-              <button className="btn block" onClick={() => setEditando(null)}>Cancelar</button>
-              <button className="btn primary block" onClick={guardarEdicion}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Ficha 360 */}
       {sel && (
@@ -154,9 +130,9 @@ export default function Clientes() {
             <div className="row">
               <h2>{sel.nombre}</h2>
               <div className="row" style={{ gap: 6 }}>
-                <button className="btn sm ghost" onClick={() => { setEditando(sel); setEditCampos(sel) }}>✎ Editar</button>
-                <button className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarCliente(sel)}>🗑 Eliminar</button>
-                <button className="btn sm" onClick={() => setSel(null)}>Cerrar</button>
+                <button type="button" className="btn sm ghost" onClick={() => { setEditando(sel); setEditCampos(sel) }}>✎ Editar</button>
+                <button type="button" className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarCliente(sel)}>🗑 Eliminar</button>
+                <button type="button" className="btn sm" onClick={() => setSel(null)}>Cerrar</button>
               </div>
             </div>
             <div className="grid3" style={{ margin: '12px 0' }}>
@@ -180,7 +156,7 @@ export default function Clientes() {
               </select>
             </div>
             <div className="row" style={{ gap: 8, marginTop: 8 }}>
-              <button className="btn primary block" onClick={cobrar} disabled={!Number(pagoMonto)}>
+              <button type="button" className="btn primary block" onClick={cobrar} disabled={!Number(pagoMonto)}>
                 Registrar pago
               </button>
               {sel.telefono && (
@@ -221,6 +197,33 @@ export default function Clientes() {
             {movs && movs.ventas.length === 0 && movs.pagos.length === 0 && (
               <div className="empty">Sin movimientos todavía.</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Editar cliente */}
+      {editando && (
+        <div className="modal-back" onClick={() => setEditando(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Editar cliente</h2>
+            <label>Nombre</label>
+            <input value={editCampos.nombre ?? ''} onChange={(e) => setEditCampos({ ...editCampos, nombre: e.target.value })} />
+            <label>Alias</label>
+            <input value={editCampos.alias ?? ''} onChange={(e) => setEditCampos({ ...editCampos, alias: e.target.value || null })} />
+            <label>Teléfono</label>
+            <input value={editCampos.telefono ?? ''} onChange={(e) => setEditCampos({ ...editCampos, telefono: e.target.value || null })} />
+            <label>Instagram</label>
+            <input value={editCampos.instagram ?? ''} onChange={(e) => setEditCampos({ ...editCampos, instagram: e.target.value || null })} />
+            <label>Tipo</label>
+            <select value={editCampos.tipo ?? 'FINAL'} onChange={(e) => setEditCampos({ ...editCampos, tipo: e.target.value as any })}>
+              <option value="FINAL">Cliente final</option>
+              <option value="REVENDEDOR">Revendedor</option>
+              <option value="MAYORISTA">Mayorista</option>
+            </select>
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button type="button" className="btn block" onClick={() => setEditando(null)}>Cancelar</button>
+              <button type="button" className="btn primary block" onClick={guardarEdicion}>Guardar</button>
+            </div>
           </div>
         </div>
       )}

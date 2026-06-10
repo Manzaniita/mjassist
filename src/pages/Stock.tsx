@@ -20,6 +20,8 @@ export default function Stock() {
   const [editProd, setEditProd] = useState<{ id: string; nombre: string; marca: string; sku: string; stock_minimo: number } | null>(null)
   const [editPrecios, setEditPrecios] = useState<{ id: string; nombre: string } | null>(null)
   const [precioInputs, setPrecioInputs] = useState<Record<string, string>>({})
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
+  const [precioMasivo, setPrecioMasivo] = useState<{ canal: string; precio: string } | null>(null)
 
   const cargar = () =>
     Promise.all([getStock(), getReservado(), getTemplateWhatsapp(), getPreciosVigentes()]).then(
@@ -122,7 +124,7 @@ export default function Stock() {
     try {
       for (const canal of ['MINORISTA', 'REVENDEDOR', 'MAYORISTA']) {
         const val = Number(precioInputs[canal])
-        if (val > 0) {
+        if (!isNaN(val) && val >= 0) {
           await setPrecio(editPrecios.id, canal, val)
         }
       }
@@ -131,6 +133,30 @@ export default function Stock() {
       cargar()
     } catch (e: any) {
       toast(e.message || 'Error al guardar precios', true)
+    }
+  }
+
+  const toggleSel = (id: string) => {
+    const next = new Set(seleccionados)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSeleccionados(next)
+  }
+
+  const aplicarPrecioMasivo = async () => {
+    if (!precioMasivo || seleccionados.size === 0) return
+    const precio = Number(precioMasivo.precio)
+    if (isNaN(precio) || precio < 0) { toast('Precio inválido', true); return }
+    try {
+      for (const id of seleccionados) {
+        await setPrecio(id, precioMasivo.canal, precio)
+      }
+      toast(`Precio aplicado a ${seleccionados.size} productos ✔`)
+      setPrecioMasivo(null)
+      setSeleccionados(new Set())
+      cargar()
+    } catch (e: any) {
+      toast(e.message || 'Error al aplicar precios', true)
     }
   }
 
@@ -158,8 +184,16 @@ export default function Stock() {
 
       <div className="card row">
         <input placeholder="Nuevo producto…" value={nuevoProd} onChange={(e) => setNuevoProd(e.target.value)} />
-        <button className="btn sm primary" onClick={altaProducto} disabled={!nuevoProd.trim()}>Crear</button>
+        <button type="button" className="btn sm primary" onClick={altaProducto}>Crear</button>
       </div>
+
+      {seleccionados.size > 0 && (
+        <div className="card row" style={{ background: 'rgba(255,45,85,0.08)' }}>
+          <span className="muted">{seleccionados.size} seleccionados</span>
+          <button type="button" className="btn sm primary" onClick={() => setPrecioMasivo({ canal: 'MINORISTA', precio: '' })}>Aplicar precio masivo</button>
+          <button type="button" className="btn sm ghost" onClick={() => setSeleccionados(new Set())}>Limpiar</button>
+        </div>
+      )}
 
       {productos.map((p) => {
         const max = Math.max(p.central + p.consignado, p.minimo * 3, 1)
@@ -171,7 +205,10 @@ export default function Stock() {
         return (
           <div className="card" key={p.id}>
             <div className="row">
-              <strong>{p.nombre}</strong>
+              <div className="row" style={{ gap: 8 }}>
+                <input type="checkbox" checked={seleccionados.has(p.id)} onChange={() => toggleSel(p.id)} style={{ width: 18, height: 18 }} />
+                <strong>{p.nombre}</strong>
+              </div>
               {p.central === 0
                 ? <span className="badge neon">Agotado</span>
                 : p.central <= p.minimo
@@ -182,13 +219,13 @@ export default function Stock() {
             <div className="row" style={{ marginTop: 7 }}>
               <span className="muted">
                 Central {p.central} · En calle {p.consignado} · Reservado {p.reservado}
-                {(pmin || prev || pmay) ? ` · $${pmin}/${prev}/${pmay}` : ''}
+                {(pmin || prev || pmay) ? ` · $${pmin || '-'}/${prev || '-'}/${pmay || '-'}` : ''}
               </span>
               <div className="row" style={{ gap: 6 }}>
-                <button className="btn sm ghost" onClick={() => { setEditPrecios({ id: p.id, nombre: p.nombre }); setPrecioInputs({ MINORISTA: String(pmin || ''), REVENDEDOR: String(prev || ''), MAYORISTA: String(pmay || '') }) }}>💲</button>
-                <button className="btn sm ghost" onClick={() => setAjuste({ producto_id: p.id, nombre: p.nombre })}>Ajustar</button>
-                <button className="btn sm ghost" onClick={() => setEditProd({ id: p.id, nombre: p.nombre, marca: '', sku: '', stock_minimo: p.minimo })}>✎</button>
-                <button className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarProducto(p.id, p.nombre)}>🗑</button>
+                <button type="button" className="btn sm ghost" onClick={() => { setEditPrecios({ id: p.id, nombre: p.nombre }); setPrecioInputs({ MINORISTA: String(pmin || ''), REVENDEDOR: String(prev || ''), MAYORISTA: String(pmay || '') }) }}>💲</button>
+                <button type="button" className="btn sm ghost" onClick={() => setAjuste({ producto_id: p.id, nombre: p.nombre })}>Ajustar</button>
+                <button type="button" className="btn sm ghost" onClick={() => setEditProd({ id: p.id, nombre: p.nombre, marca: '', sku: '', stock_minimo: p.minimo })}>✎</button>
+                <button type="button" className="btn sm ghost" style={{ color: 'var(--neon)' }} onClick={() => borrarProducto(p.id, p.nombre)}>🗑</button>
               </div>
             </div>
           </div>
@@ -237,14 +274,34 @@ export default function Stock() {
             <h2>Precios — {editPrecios.nombre}</h2>
             {(['MINORISTA', 'REVENDEDOR', 'MAYORISTA'] as const).map((canal) => (
               <div key={canal} style={{ marginBottom: 10 }}>
-                <label>{canal === 'MINORISTA' ? 'Minorista' : canal === 'REVENDEDOR' ? 'Revendedor' : 'Mayorista'}</label>
+                <label>{canal === 'MINORISTA' ? 'Minorista' : canal === 'REVENDEDOR' ? 'Revendedor' : 'Mayorista'} (0 = sin precio)</label>
                 <input type="number" inputMode="numeric" value={precioInputs[canal] ?? ''}
                   onChange={(e) => setPrecioInputs({ ...precioInputs, [canal]: e.target.value })} />
               </div>
             ))}
             <div className="row" style={{ gap: 8, marginTop: 14 }}>
-              <button className="btn block" onClick={() => setEditPrecios(null)}>Cancelar</button>
-              <button className="btn primary block" onClick={guardarPrecios}>Guardar precios</button>
+              <button type="button" className="btn block" onClick={() => setEditPrecios(null)}>Cancelar</button>
+              <button type="button" className="btn primary block" onClick={guardarPrecios}>Guardar precios</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {precioMasivo && (
+        <div className="modal-back" onClick={() => setPrecioMasivo(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Precio masivo ({seleccionados.size} productos)</h2>
+            <label>Canal</label>
+            <select value={precioMasivo.canal} onChange={(e) => setPrecioMasivo({ ...precioMasivo, canal: e.target.value })}>
+              <option value="MINORISTA">Minorista</option>
+              <option value="REVENDEDOR">Revendedor</option>
+              <option value="MAYORISTA">Mayorista</option>
+            </select>
+            <label>Precio</label>
+            <input type="number" inputMode="numeric" autoFocus value={precioMasivo.precio} onChange={(e) => setPrecioMasivo({ ...precioMasivo, precio: e.target.value })} />
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button type="button" className="btn block" onClick={() => setPrecioMasivo(null)}>Cancelar</button>
+              <button type="button" className="btn primary block" onClick={aplicarPrecioMasivo}>Aplicar</button>
             </div>
           </div>
         </div>
