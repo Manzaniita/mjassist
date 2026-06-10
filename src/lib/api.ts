@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = ((import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL) as string) || ''
-const supabaseKey = ((import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_KEY) as string) || ''
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string) || ''
+const supabaseKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || ''
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('[MJ Assist] Faltan variables de entorno: VITE_SUPABASE_URL / SUPABASE_URL y/o VITE_SUPABASE_ANON_KEY / SUPABASE_KEY')
+  console.error('[MJ Assist] Faltan VITE_SUPABASE_URL y/o VITE_SUPABASE_ANON_KEY en las variables de entorno de Vercel.')
 }
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
