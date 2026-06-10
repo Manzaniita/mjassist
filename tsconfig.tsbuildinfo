@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/vite-env.d.ts","./src/lib/api.ts","./src/pages/Caja.tsx","./src/pages/Clientes.tsx","./src/pages/Dashboard.tsx","./src/pages/NuevaVenta.tsx","./src/pages/Revendedores.tsx","./src/pages/Stock.tsx","./src/pages/Ventas.tsx"],"version":"5.9.3"}
