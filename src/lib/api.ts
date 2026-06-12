@@ -24,7 +24,7 @@ export interface SaldoCliente extends Cliente {
 }
 export interface Producto {
   id: string; nombre: string; marca: string | null; sku: string | null
-  stock_minimo: number; activo: boolean
+  stock_minimo: number; costo: number | null; activo: boolean
 }
 export interface PrecioVigente { producto_id: string; canal: string; precio_ars: number }
 export interface StockRow {
@@ -97,8 +97,16 @@ export async function getProductos(): Promise<Producto[]> {
   return data
 }
 
-export async function crearProducto(nombre: string, marca?: string | null, sku?: string | null, stock_minimo = 3): Promise<Producto> {
-  const { data, error } = await supabase.from('productos').insert({ nombre, marca: marca ?? null, sku: sku ?? null, stock_minimo }).select()
+export async function crearProducto(
+  nombre: string,
+  marca?: string | null,
+  sku?: string | null,
+  stock_minimo = 3,
+  costo?: number | null
+): Promise<Producto> {
+  const { data, error } = await supabase.from('productos').insert({
+    nombre, marca: marca ?? null, sku: sku ?? null, stock_minimo, costo: costo ?? null,
+  }).select()
   if (error) throw error
   if (!data || data.length === 0) throw new Error('No se pudo crear el producto')
   return data[0]

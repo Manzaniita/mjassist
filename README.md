@@ -87,4 +87,16 @@ Instalable como app: en Chrome del celu → menú → *Agregar a pantalla de ini
 
 ## 7. Migración desde el Sheets
 
-El importador de CSVs es el próximo paso (Fase importación). Mientras tanto podés arrancar en limpio: cargá el stock real con "Ajustar" en cada producto y los saldos iniciales de deudores como ventas con nota "Saldo inicial migrado".
+Podés importar productos desde Stock > "Importar CSV". El formato esperado es:
+
+```csv
+Nombre,Cantidad,Costo,Reventa,Comunidad,Publico,SKU,Marca,StockMinimo
+```
+
+- `Nombre` es obligatorio.
+- `Cantidad` se suma al stock de la ubicación Central como un ajuste positivo.
+- `Costo` se guarda en el producto (nuevo campo).
+- `Reventa`, `Comunidad` y `Publico` se importan como canales de precio. Si usás los canales por defecto (MINORISTA / REVENDEDOR / MAYORISTA), las columnas se mapean automáticamente.
+- `SKU`, `Marca` y `StockMinimo` son opcionales pero recomendados. El SKU permite actualizar productos existentes sin duplicarlos.
+
+También podés arrancar en limpio: cargá el stock real con "Ajustar" en cada producto y los saldos iniciales de deudores como ventas con nota "Saldo inicial migrado".
