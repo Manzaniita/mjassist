@@ -10,6 +10,7 @@ import Clientes from './pages/Clientes'
 import Stock from './pages/Stock'
 import Revendedores from './pages/Revendedores'
 import Caja from './pages/Caja'
+import Admin from './pages/Admin'
 
 // ---- Contexto global: operador activo + toasts ----
 interface AppCtx {
@@ -73,6 +74,7 @@ function Shell() {
           <Route path="/stock" element={<Stock />} />
           <Route path="/revendedores" element={<Revendedores />} />
           <Route path="/caja" element={<Caja />} />
+          <Route path="/admin" element={<Admin />} />
         </Routes>
         <div className="credit">
           Creado por mjimportaciones
@@ -98,6 +100,11 @@ function Shell() {
         <NavLink to="/caja" className={({ isActive }) => (isActive ? 'active' : '')}>
           <span className="ico">$</span>Caja
         </NavLink>
+        {operador?.rol === 'ADMIN' && (
+          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <span className="ico">⚙</span>Admin
+          </NavLink>
+        )}
       </nav>
 
       {toastMsg && <div className={'toast' + (toastMsg.err ? ' err' : '')}>{toastMsg.msg}</div>}
